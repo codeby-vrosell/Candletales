@@ -1,0 +1,129 @@
+// ============================================================
+// Readme of UIAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script provides procedural UI animations for user interface elements. 
+It supports smooth rotation oscillations and dynamic wave motion effects on TextMeshPro text components to enhance visual feedback and immersion.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Handles smooth local rotation oscillations between a minimum and maximum angle.
+- Anims text vertices dynamically to create a wave motion effect across characters.
+- Forces mesh updates and submits modified geometry back to the TextMeshPro component.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using TMPro;
+
+public class UIAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Status Settings
+    // ============================================================
+
+    [Header("Status")]
+    public bool enableRotation;
+    public bool enableTextWave;
+
+    // ============================================================
+    // Rotation Animation Settings
+    // ============================================================
+
+    [Header("Rotation Animation Settings")]
+    public float minAngle;
+    public float maxAngle;
+    public float speed;
+
+    // ============================================================
+    // Wave Animation Settings
+    // ============================================================
+
+    [Header("Wave Animation Settings")]
+    public float waveHeight;
+    public float waveSpeed;
+    public float waveFrequency;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private RectTransform rectTransform;
+    private TMP_Text textComponent;
+
+    void Start() {
+
+        rectTransform = GetComponent<RectTransform>();
+        textComponent = GetComponent<TMP_Text>();
+
+    }
+
+    void Update() {
+
+        if (enableRotation == true) {
+
+            rotationAnimation();
+
+        }
+
+        if (enableTextWave == true && textComponent != null) {
+
+            textWaveAnimation();
+
+        }
+    }
+
+    private void rotationAnimation() {
+
+        float timeFraction = (Mathf.Sin(Time.time * speed) + 1f) / 2f;
+        float currentAngle = Mathf.Lerp(minAngle, maxAngle, timeFraction);
+
+        rectTransform.localRotation = Quaternion.Euler(0f, 0f, currentAngle);
+
+    }
+
+    private void textWaveAnimation() {
+
+        textComponent.ForceMeshUpdate();
+
+        TMP_TextInfo textInfo = textComponent.textInfo;
+
+        for (int i = 0; i < textInfo.characterCount; i = i + 1) {
+
+            TMP_CharacterInfo characterInfo = textInfo.characterInfo[i];
+
+            if (characterInfo.isVisible == false) {
+
+                continue;
+
+            }
+
+            Vector3[] vertices = textInfo.meshInfo[characterInfo.materialReferenceIndex].vertices;
+            float offsetY = Mathf.Sin(Time.time * waveSpeed + i * waveFrequency) * waveHeight;
+
+            for (int j = 0; j < 4; j = j + 1) {
+
+                int vertexIndex = characterInfo.vertexIndex + j;
+                vertices[vertexIndex] = vertices[vertexIndex] + new Vector3(0f, offsetY, 0f);
+
+            }
+        }
+
+        for (int i = 0; i < textInfo.meshInfo.Length; i = i + 1) {
+
+            TMP_MeshInfo meshInfo = textInfo.meshInfo[i];
+
+            meshInfo.mesh.vertices = meshInfo.vertices;
+            textComponent.UpdateGeometry(meshInfo.mesh, i);
+
+        }
+    }
+}
