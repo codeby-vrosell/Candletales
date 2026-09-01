@@ -6,9 +6,8 @@
 // Description
 // ============================================================
 
-This script handles the continuous rotation of the chains or visual elements 
-attached to the boss invoker. It applies a steady rotation based on a 
-customizable speed vector across the defined coordinate space every frame.
+This script handles the continuous rotation of the chains or visual elements attached to the boss invoker.
+It applies a steady rotation based on a customizable speed vector across the defined coordinate space every frame.
 
 // ============================================================
 // Responsibilities
