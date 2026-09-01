@@ -1,0 +1,35 @@
+// ============================================================
+// Readme of BiomeSeed
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a lightweight data container used by the procedural generation system to store the core seed information for a specific chunk of the grid.
+It holds the deterministic position and the index of the biome it represents, supporting the infinite board generation system.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the deterministic 2D position for a biome chunk's origin.
+- Holds the integer index referencing the assigned biome configuration.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+using UnityEngine;
+
+public class BiomeSeed {
+
+    // ============================================================
+    // Seed Data
+    // ============================================================
+
+    public Vector2 position;
+    public int biomeIndex;
+
+}
