@@ -1,0 +1,83 @@
+// ============================================================
+// Readme of Cell
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines the data structure for a single grid cell on the infinite modular board.
+It stores essential information regarding the tile's walkability, water status, movement cost, and its current occupation state to manage tactical movement.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Holds the exact 2D grid coordinates and visual GameObject reference.
+- Defines traversal rules, including movement costs and speed multipliers.
+- Tracks the occupation state of the cell (available, transit, or occupied).
+- Stores vertical offset data for proper entity placement and procedural animations.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using Unity.VisualScripting;
+using UnityEngine;
+
+[System.Serializable]
+public class Cell {
+
+    // ============================================================
+    // Enums & State
+    // ============================================================
+
+    public enum StateOfCell { available, transit, occupied };
+    
+    public StateOfCell currentStateOfCell;
+    public bool occupiedByEntity;
+
+    // ============================================================
+    // Grid Data & Visuals
+    // ============================================================
+
+    public Vector2Int gridPosition;
+    public GameObject visual;
+    public MultiTileLayer layerType = MultiTileLayer.None;
+
+    // ============================================================
+    // Tile Properties
+    // ============================================================
+
+    public TileType tileType;
+    public bool isWalkable;
+    public bool isWater;
+    public int movementCost;
+    public float speedMultiplier;
+    public float minY;
+    public float offsetY;
+
+    // ============================================================
+    // Constructor
+    // ============================================================
+
+    // The constructor must match the class name with a capital letter to compile properly
+    public Cell(Vector2Int position, TileType tileTypeParameter) {
+
+        gridPosition = position;
+        tileType = tileTypeParameter;
+        
+        currentStateOfCell = StateOfCell.available;
+        isWalkable = tileTypeParameter.isWalkable;
+        isWater = tileTypeParameter.isWater;
+        movementCost = tileTypeParameter.movementCost;
+        speedMultiplier = tileTypeParameter.speedMultiplier;
+        
+        minY = 0f;
+        offsetY = tileTypeParameter.offsetY;
+        layerType = MultiTileLayer.None;
+        occupiedByEntity = false;
+
+    }
+}
