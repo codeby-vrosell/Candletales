@@ -1,0 +1,164 @@
+// ============================================================
+// Readme of StainedEyeAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the visual behavior and animations for the Stained Eye entity. 
+It combines procedural scaling for a continuous breathing effect on the pupil with a sprite-based sequence to simulate natural, randomized blinking.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Scales the pupil procedurally using a sine wave to create an idle breathing effect.
+- Cycles through an array of eyelid sprites to animate the blinking motion.
+- Randomizes the wait time between each blink using defined minimum and maximum intervals.
+- Applies a squash and stretch scale modifier to the pupil during the blink sequence.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using UnityEngine;
+
+public class StainedEyeAnimator : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("References")]
+    public Transform pupilTransform;
+    public SpriteRenderer topEyelid;
+    public SpriteRenderer bottomEyelid;
+    public Sprite[] eyelidSprites;
+
+    // ============================================================
+    // Idle Settings
+    // ============================================================
+
+    [Header("Idle Settings")]
+    public float idleMinimumScaleMultiplier;
+    public float idleMaximumScaleMultiplier;
+    public float breathingSpeed;
+
+    // ============================================================
+    // Blink Settings
+    // ============================================================
+
+    [Header("Blink Settings")]
+    public float minimumBlinkWait;
+    public float maximumBlinkWait;
+    public Vector3 blinkSquashScale;
+    public float timePerFrame;
+    public float pupilScaleSpeed;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Camera mainCamera;
+    private bool isBlinking = false;
+    private float currentFrameFloat = 0f;
+
+    private Vector3 defaultPupilScale;
+    private Vector3 currentPupilScale;
+
+    private void Start() {
+
+        mainCamera = Camera.main;
+        defaultPupilScale = pupilTransform.localScale;
+        currentPupilScale = defaultPupilScale;
+
+        StartCoroutine(blinkRoutine());
+
+    }
+
+    private void Update() {
+
+        if (mainCamera == null) {
+
+            return;
+
+        }
+
+        if (eyelidSprites.Length == 0) {
+
+            return;
+
+        }
+
+        handleAnimations();
+
+    }
+
+    private void handleAnimations() {
+
+        float targetFrame = 0f;
+        Vector3 targetPupilScale = defaultPupilScale;
+
+        if (isBlinking == true) {
+
+            targetFrame = eyelidSprites.Length - 1;
+            targetPupilScale = blinkSquashScale;
+
+        }
+
+        else {
+
+            targetFrame = 0f;
+            float timeFraction = (Mathf.Sin(Time.time * breathingSpeed) + 1f) / 2f;
+            float currentMultiplier = Mathf.Lerp(idleMinimumScaleMultiplier, idleMaximumScaleMultiplier, timeFraction);
+            
+            targetPupilScale = new Vector3(defaultPupilScale.x * currentMultiplier, defaultPupilScale.y * currentMultiplier, defaultPupilScale.z);
+
+        }
+
+        float frameSpeed;
+
+        if (timePerFrame > 0f) {
+
+            frameSpeed = 1f / timePerFrame;
+
+        }
+
+        else {
+
+            frameSpeed = 1000f;
+
+        }
+
+        currentFrameFloat = Mathf.MoveTowards(currentFrameFloat, targetFrame, frameSpeed * Time.deltaTime);
+        currentPupilScale = Vector3.MoveTowards(currentPupilScale, targetPupilScale, pupilScaleSpeed * Time.deltaTime);
+        
+        pupilTransform.localScale = currentPupilScale;
+
+        int frameIndex = Mathf.Clamp(Mathf.RoundToInt(currentFrameFloat), 0, eyelidSprites.Length - 1);
+
+        topEyelid.sprite = eyelidSprites[frameIndex];
+        bottomEyelid.sprite = eyelidSprites[frameIndex];
+
+    }
+
+    private IEnumerator blinkRoutine() {
+
+        while (true) {
+
+            yield return new WaitForSeconds(Random.Range(minimumBlinkWait, maximumBlinkWait));
+
+            isBlinking = true;
+
+            int totalFrames = eyelidSprites.Length - 1;
+            float timeToClose = totalFrames * timePerFrame;
+
+            yield return new WaitForSeconds(timeToClose + 0.1f);
+
+            isBlinking = false;
+
+        }
+    }
+}
