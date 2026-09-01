@@ -1,0 +1,466 @@
+// ============================================================
+// Readme of CursorManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the custom UI-based cursor for the game.
+It replaces the standard OS cursor and handles raycasting to detect interactive entities on the grid, such as enemies, chests, and totems.
+It dynamically updates the cursor's visual state and supports a fill-progress mechanic for sustained interactions.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Replaces the default hardware cursor with a custom UI RawImage.
+- Casts rays to detect grid entities and interactables.
+- Changes the cursor texture dynamically based on the hovered object's layer.
+- Controls a visual radial fill indicator for actions that require holding input.
+- Allows constraining the cursor's position during special game states.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class CursorManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton & Enums
+    // ============================================================
+
+    public static CursorManager Instance;
+
+    public enum FillType { Default, Totem }
+
+    // ============================================================
+    // UI Cursor Elements
+    // ============================================================
+
+    [Header("UI Cursor")]
+    public RawImage uiCursorImage;
+    public Vector3 radialOffset = Vector3.zero;
+    public float cursorScale;
+
+    // ============================================================
+    // Cursor Settings
+    // ============================================================
+
+    [Header("Cursor Settings")]
+    public LayerMask interactablesLayer;
+    public LayerMask enemyLayer;
+
+    // ============================================================
+    // Texture Configurations
+    // ============================================================
+
+    [Header("Default Cursor")]
+    public Texture2D defaultCursorTexture;
+    public Vector2 defaultHotspot = Vector2.zero;
+
+    [Header("Fill Cursor (Default/Flag)")]
+    public Image fillCursorImage;
+    public Texture2D fillCursorTexture;
+    public Vector2 fillHotspot = Vector2.zero;
+
+    [Header("Fill Cursor (Totem)")]
+    public Image totemFillCursorImage;
+    public Texture2D totemFillTexture;
+    public Vector2 totemFillHotspot = Vector2.zero;
+
+    [Header("Blocked Cursor")]
+    public Texture2D blockedCursorTexture;
+    public Vector2 blockedHotspot = Vector2.zero;
+
+    [Header("Layer Cursor Settings")]
+    public List<LayerCursorInfo> cursorConfigs = new List<LayerCursorInfo>();
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private Camera mainCamera;
+    private Texture2D currentActiveCursor;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private bool isFilling = false;
+    private bool isHoveringBlocked = false;
+    private FillType currentFillType = FillType.Default;
+
+    [HideInInspector] public bool useConstrainedPosition = false;
+    [HideInInspector] public Vector2 constrainedPosition = Vector2.zero;
+
+    private void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(gameObject);
+
+        }
+
+        mainCamera = Camera.main;
+
+        Cursor.visible = false;
+
+        if (uiCursorImage != null) {
+
+            uiCursorImage.gameObject.SetActive(true);
+            uiCursorImage.rectTransform.localScale = Vector3.one * cursorScale;
+
+        }
+
+        setDefaultCursor();
+
+        if (fillCursorImage != null) {
+
+            fillCursorImage.gameObject.SetActive(false);
+
+        }
+
+        if (totemFillCursorImage != null) {
+
+            totemFillCursorImage.gameObject.SetActive(false);
+
+        }
+    }
+
+    private void Update() {
+
+        Vector2 targetMousePosition;
+
+        if (useConstrainedPosition) {
+
+            targetMousePosition = constrainedPosition;
+
+        }
+
+        else {
+
+            targetMousePosition = (Vector2)Input.mousePosition;
+
+        }
+
+        if (uiCursorImage != null) {
+
+            uiCursorImage.transform.position = targetMousePosition;
+            uiCursorImage.rectTransform.localScale = Vector3.one * cursorScale;
+
+        }
+
+        if (isFilling == false) {
+
+            handleRaycast();
+
+        }
+
+        handleFillPosition();
+
+    }
+
+    private void handleFillPosition() {
+
+        Vector3 targetPosition;
+
+        if (useConstrainedPosition) {
+
+            targetPosition = (Vector3)constrainedPosition + radialOffset;
+
+        }
+
+        else {
+
+            targetPosition = Input.mousePosition + radialOffset;
+
+        }
+
+        if (fillCursorImage != null && fillCursorImage.gameObject.activeSelf) {
+
+            fillCursorImage.transform.position = targetPosition;
+
+        }
+
+        if (totemFillCursorImage != null && totemFillCursorImage.gameObject.activeSelf) {
+
+            totemFillCursorImage.transform.position = targetPosition;
+
+        }
+    }
+
+    public void setFillProgress(bool isActive, FillType fillType = FillType.Default) {
+
+        if (isActive) {
+
+            isFilling = true;
+            currentFillType = fillType;
+
+            Image imageToUse;
+
+            if (fillType == FillType.Totem) {
+
+                imageToUse = totemFillCursorImage;
+
+            }
+
+            else {
+
+                imageToUse = fillCursorImage;
+
+            }
+
+            Texture2D cursorToUse;
+
+            if (fillType == FillType.Totem) {
+
+                cursorToUse = totemFillTexture;
+
+            }
+
+            else {
+
+                cursorToUse = fillCursorTexture;
+
+            }
+
+            Vector2 hotspotToUse;
+
+            if (fillType == FillType.Totem) {
+
+                hotspotToUse = totemFillHotspot;
+
+            }
+
+            else {
+
+                hotspotToUse = fillHotspot;
+
+            }
+
+            if (imageToUse != null) {
+
+                imageToUse.gameObject.SetActive(true);
+                imageToUse.fillAmount = 0f;
+
+            }
+
+            changeCursor(cursorToUse, hotspotToUse);
+
+        }
+
+        else {
+
+            if (isFilling && currentFillType == fillType) {
+
+                isFilling = false;
+
+                if (fillType == FillType.Totem && totemFillCursorImage != null) {
+
+                    totemFillCursorImage.gameObject.SetActive(false);
+
+                }
+
+                else if (fillType == FillType.Default && fillCursorImage != null) {
+
+                    fillCursorImage.gameObject.SetActive(false);
+
+                }
+
+                handleRaycast();
+
+            }
+        }
+    }
+
+    public void updateFillProgress(float progress) {
+
+        if (currentFillType == FillType.Totem && totemFillCursorImage != null) {
+
+            totemFillCursorImage.fillAmount = progress;
+
+        }
+
+        else if (currentFillType == FillType.Default && fillCursorImage != null) {
+
+            fillCursorImage.fillAmount = progress;
+
+        }
+    }
+
+    public void setBlockedState(bool isBlocked) {
+
+        isHoveringBlocked = isBlocked;
+
+    }
+
+    private void handleRaycast() {
+
+        if (BlurPaneles.Instance != null && BlurPaneles.Instance.Visible) {
+
+            setDefaultCursor();
+
+            return;
+
+        }
+
+        if (isHoveringBlocked) {
+
+            changeCursor(blockedCursorTexture, blockedHotspot);
+
+            return;
+
+        }
+
+        Vector3 screenPosition;
+
+        if (useConstrainedPosition) {
+
+            screenPosition = (Vector3)constrainedPosition;
+
+        }
+
+        else {
+
+            screenPosition = Input.mousePosition;
+
+        }
+
+        Ray ray = mainCamera.ScreenPointToRay(screenPosition);
+        bool hitValidInteractable = false;
+
+        // Bitwise OR operation to combine layer masks
+        LayerMask combinedMask = interactablesLayer | enemyLayer;
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 1000f, combinedMask)) {
+
+            IInteractable interactable = hit.collider.GetComponentInParent<IInteractable>();
+            Totem totem = hit.collider.GetComponentInParent<Totem>();
+            EnemyBase enemy = hit.collider.GetComponentInParent<EnemyBase>();
+            StatsPanelOpener statsPanel = hit.collider.GetComponentInParent<StatsPanelOpener>();
+            ChestController inventoryPanel = hit.collider.GetComponentInParent<ChestController>();
+
+            if (interactable != null && interactable.canInteract()) {
+
+                hitValidInteractable = true;
+                setCursorForLayer(hit.collider.gameObject.layer);
+
+            }
+
+            else if (totem != null && totem.hasRequiredItems()) {
+
+                hitValidInteractable = true;
+                setCursorForLayer(hit.collider.gameObject.layer);
+
+            }
+
+            else if (enemy != null) {
+
+                hitValidInteractable = true;
+                setCursorForLayer(hit.collider.gameObject.layer);
+
+            }
+
+            else if (statsPanel != null) {
+
+                hitValidInteractable = true;
+                setCursorForLayer(hit.collider.gameObject.layer);
+
+            }
+
+            else if (inventoryPanel != null) {
+
+                hitValidInteractable = true;
+                setCursorForLayer(hit.collider.gameObject.layer);
+
+            }
+        }
+
+        if (hitValidInteractable == false) {
+
+            setDefaultCursor();
+
+        }
+    }
+
+    private void setCursorForLayer(int layerIndex) {
+
+        int layerBit = 1 << layerIndex;
+
+        foreach (LayerCursorInfo config in cursorConfigs) {
+
+            // Bitwise AND operation to check if the layer matches the configuration
+            if ((config.layerMask.value & layerBit) != 0) {
+
+                changeCursor(config.cursorTexture, config.hotspot);
+
+                return;
+
+            }
+        }
+
+        setDefaultCursor();
+
+    }
+
+    private void setDefaultCursor() {
+
+        changeCursor(defaultCursorTexture, defaultHotspot);
+
+    }
+
+    private void changeCursor(Texture2D newCursor, Vector2 hotspot) {
+
+        if (newCursor == null) {
+
+            return;
+
+        }
+
+        if (currentActiveCursor != newCursor) {
+
+            currentActiveCursor = newCursor;
+
+            if (uiCursorImage != null) {
+
+                uiCursorImage.texture = newCursor;
+                uiCursorImage.rectTransform.sizeDelta = new Vector2(newCursor.width, newCursor.height);
+
+                float pivotX = hotspot.x / newCursor.width;
+                float pivotY = 1f - (hotspot.y / newCursor.height);
+
+                uiCursorImage.rectTransform.pivot = new Vector2(pivotX, pivotY);
+
+            }
+        }
+    }
+
+    public void hideUICursor() {
+
+        if (uiCursorImage != null) {
+
+            uiCursorImage.gameObject.SetActive(false);
+
+        }
+    }
+
+    public void showUICursor() {
+
+        if (uiCursorImage != null) {
+
+            uiCursorImage.gameObject.SetActive(true);
+
+        }
+    }
+}
