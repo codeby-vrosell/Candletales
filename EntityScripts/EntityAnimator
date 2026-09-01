@@ -1,0 +1,410 @@
+// ============================================================
+// Readme of EntityAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script handles procedural animations for various entities on the board, such as the merchant, mimics, or slimes.
+It calculates and combines rotations and translations to simulate hits, dice collisions, water floating, and grid-snapping inertia.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Manages standard hit and dice collision wobble animations using sine waves.
+- Simulates floating behavior when entities are placed on water tiles.
+- Calculates procedural inertia and overshoot when an entity recenters on the grid.
+- Combines multiple rotation and position states into a single final transform update.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using UnityEngine;
+
+public class EntityAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    [Header("References")]
+    public Transform baseTransform;
+
+    // ============================================================
+    // Hit Animation Settings
+    // ============================================================
+
+    [Header("Entity Hit Animation Settings")]
+    private float hitAnimationMaxAngle = 15f;
+    private float hitAnimationDuration = 0.6f;
+    private float hitAnimationRotations = 2f;
+
+    // ============================================================
+    // Dice Hit Animation Settings
+    // ============================================================
+
+    [Header("Entity Dice Hit Animation Settings")]
+    private float diceHitMaxAngle = 5f;
+    private float diceHitDuration = 0.3f;
+    private float diceHitRotations = 1.5f;
+    private float diceHitCooldown = 1f;
+    private float lastDiceHitTime = -100f;
+
+    // ============================================================
+    // Float Animation Settings
+    // ============================================================
+
+    [Header("Entity Float Animation Settings")]
+    private float floatAmplitude = 0.05f;
+    private float floatSpeed = 2f;
+    private float floatTiltAmplitude = 2.5f;
+    private float floatTiltSpeed = 1.5f;
+
+    // ============================================================
+    // Recenter Animation Settings
+    // ============================================================
+
+    [Header("Entity Recenter Animation Settings")]
+    private float recenterMaxAngle = 15f;
+    private float recenterDuration = 0.5f;
+    private float recenterBounces = 2f;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Coroutine floatCoroutine;
+    private Coroutine recenterCoroutine;
+    private Coroutine currentAnimation;
+
+    private bool isFloating = false;
+
+    private Vector3 originalPosition;
+    private float currentFloatHeight = 0f;
+
+    private Quaternion currentFloatRotation = Quaternion.identity;
+    private Quaternion currentHitRotation = Quaternion.identity;
+    private Quaternion currentRecenterRotation = Quaternion.identity;
+    private Quaternion originalRotation;
+
+    private int diceLayer;
+
+    private void Awake() {
+
+        diceLayer = LayerMask.NameToLayer("Dice");
+
+    }
+
+    private void Start() {
+
+        originalRotation = baseTransform.localRotation;
+        originalPosition = baseTransform.localPosition;
+
+    }
+
+    // ============================================================
+    // Hit Animation
+    // ============================================================
+
+    public void playHitAnimation() {
+
+        if (currentAnimation != null) {
+
+            StopCoroutine(currentAnimation);
+            currentHitRotation = Quaternion.identity;
+            updateCombinedRotation();
+
+        }
+
+        currentAnimation = StartCoroutine(hitAnimation());
+
+    }
+
+    private IEnumerator hitAnimation() {
+
+        float elapsedTime = 0f;
+        float randomStartOffset = Random.Range(0f, Mathf.PI * 2f);
+
+        while (elapsedTime < hitAnimationDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            float normalizedTime = elapsedTime / hitAnimationDuration;
+            float damping = 1f - normalizedTime;
+            damping = damping * damping;
+
+            float currentAngle = hitAnimationMaxAngle * damping;
+            float currentPhase = (normalizedTime * hitAnimationRotations * Mathf.PI * 2f) + randomStartOffset;
+
+            float tiltX = Mathf.Sin(currentPhase) * currentAngle;
+            float tiltZ = Mathf.Cos(currentPhase) * currentAngle;
+
+            currentHitRotation = Quaternion.Euler(tiltX, 0f, tiltZ);
+            updateCombinedRotation();
+
+            yield return null;
+
+        }
+
+        currentHitRotation = Quaternion.identity;
+        updateCombinedRotation();
+        currentAnimation = null;
+
+    }
+
+    // ============================================================
+    // Dice Hit Animation
+    // ============================================================
+
+    public void playDiceHitAnimation() {
+
+        if (Time.time - lastDiceHitTime < diceHitCooldown) {
+
+            return;
+
+        }
+
+        lastDiceHitTime = Time.time;
+
+        if (currentAnimation != null) {
+
+            StopCoroutine(currentAnimation);
+            currentHitRotation = Quaternion.identity;
+            updateCombinedRotation();
+
+        }
+
+        currentAnimation = StartCoroutine(diceHitAnimation());
+
+    }
+
+    private IEnumerator diceHitAnimation() {
+
+        float elapsedTime = 0f;
+        float randomStartOffset = Random.Range(0f, Mathf.PI * 2f);
+
+        while (elapsedTime < diceHitDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            float normalizedTime = elapsedTime / diceHitDuration;
+            float damping = 1f - normalizedTime;
+            damping = damping * damping;
+
+            float currentAngle = diceHitMaxAngle * damping;
+            float currentPhase = (normalizedTime * diceHitRotations * Mathf.PI * 2f) + randomStartOffset;
+
+            float tiltX = Mathf.Sin(currentPhase) * currentAngle;
+            float tiltZ = Mathf.Cos(currentPhase) * currentAngle;
+
+            currentHitRotation = Quaternion.Euler(tiltX, 0f, tiltZ);
+            updateCombinedRotation();
+
+            yield return null;
+
+        }
+
+        currentHitRotation = Quaternion.identity;
+        updateCombinedRotation();
+        currentAnimation = null;
+
+    }
+
+    // ============================================================
+    // Floating Animation
+    // ============================================================
+
+    public void setFloating(bool state) {
+
+        if (state == isFloating) {
+
+            return;
+
+        }
+
+        isFloating = state;
+
+        if (isFloating) {
+
+            if (floatCoroutine == null) {
+
+                floatCoroutine = StartCoroutine(floatingAnimation());
+
+            }
+        }
+
+        else {
+
+            if (floatCoroutine != null) {
+
+                StopCoroutine(floatCoroutine);
+                floatCoroutine = null;
+
+            }
+
+            currentFloatHeight = 0f;
+            updateCombinedPosition();
+
+            currentFloatRotation = Quaternion.identity;
+            updateCombinedRotation();
+
+        }
+    }
+
+    private IEnumerator floatingAnimation() {
+
+        float floatTimer = 0f;
+
+        while (true) {
+
+            floatTimer = floatTimer + Time.deltaTime;
+
+            currentFloatHeight = Mathf.Sin(floatTimer * floatSpeed) * floatAmplitude;
+            updateCombinedPosition();
+
+            float tiltX = Mathf.Sin(floatTimer * floatTiltSpeed) * floatTiltAmplitude;
+            float tiltZ = Mathf.Cos(floatTimer * floatTiltSpeed * 0.8f) * floatTiltAmplitude;
+
+            currentFloatRotation = Quaternion.Euler(tiltX, 0f, tiltZ);
+            updateCombinedRotation();
+
+            yield return null;
+
+        }
+    }
+
+    // ============================================================
+    // Animation Blending
+    // ============================================================
+
+    private void updateCombinedRotation() {
+
+        baseTransform.localRotation = currentRecenterRotation * originalRotation * currentFloatRotation * currentHitRotation;
+
+    }
+
+    private void updateCombinedPosition() {
+
+        baseTransform.localPosition = originalPosition + new Vector3(0f, currentFloatHeight, 0f);
+
+    }
+
+    // ============================================================
+    // Collision Detection
+    // ============================================================
+
+    private void OnCollisionEnter(Collision collision) {
+
+        if (collision.gameObject.layer == diceLayer) {
+
+            playDiceHitAnimation();
+
+        }
+    }
+
+    // ============================================================
+    // Recenter Animation (Synchronized Inertia with Overshoot)
+    // ============================================================
+
+    public void playRecenterAnimation(Vector3 gridShiftDelta, float moveTime, float overshootAmount) {
+
+        if (recenterCoroutine != null) {
+
+            StopCoroutine(recenterCoroutine);
+            currentRecenterRotation = Quaternion.identity;
+            updateCombinedRotation();
+
+        }
+
+        recenterCoroutine = StartCoroutine(recenterAnimation(gridShiftDelta, moveTime, overshootAmount));
+
+    }
+
+    // Calculates a procedural velocity curve to simulate a rubber-band overshoot effect
+    private float getGridVelocity(float timeValue, float stretchAmount) {
+
+        float scaledTime = timeValue * 2f;
+
+        if (scaledTime < 1f) {
+
+            return 0.5f * (3f * scaledTime * scaledTime * (stretchAmount + 1f) - 2f * scaledTime * stretchAmount);
+
+        }
+
+        else {
+
+            float subtractedTime = scaledTime - 2f;
+            return 0.5f * (3f * subtractedTime * subtractedTime * (stretchAmount + 1f) + 2f * subtractedTime * stretchAmount);
+
+        }
+    }
+
+    private IEnumerator recenterAnimation(Vector3 gridShiftDelta, float moveTime, float overshootAmount) {
+
+        if (gridShiftDelta.sqrMagnitude < 0.001f) {
+
+            yield break;
+
+        }
+
+        Vector3 worldLeanDirection = gridShiftDelta.normalized;
+        Vector3 worldRotationAxis = Vector3.Cross(Vector3.up, worldLeanDirection);
+        Vector3 localRotationAxis = worldRotationAxis;
+
+        // Transforms the rotation axis to local space if the entity has a parent
+        if (baseTransform.parent != null) {
+
+            localRotationAxis = baseTransform.parent.InverseTransformDirection(worldRotationAxis);
+
+        }
+
+        float elapsedTime = 0f;
+        float maxVelocity = 0.5f * (overshootAmount + 3f);
+
+        while (elapsedTime < moveTime) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            float timeFraction = Mathf.Clamp01(elapsedTime / moveTime);
+            float currentVelocity = getGridVelocity(timeFraction, overshootAmount) / maxVelocity;
+            float angle = -recenterMaxAngle * currentVelocity;
+
+            currentRecenterRotation = Quaternion.AngleAxis(angle, localRotationAxis);
+            updateCombinedRotation();
+
+            yield return null;
+
+        }
+
+        elapsedTime = 0f;
+        float residualAngle = recenterMaxAngle * 0.4f;
+
+        while (elapsedTime < recenterDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            float normalizedTime = elapsedTime / recenterDuration;
+            float damping = 1f - normalizedTime;
+            
+            damping = damping * damping * damping;
+
+            float angle = -Mathf.Sin(normalizedTime * recenterBounces * Mathf.PI * 2f) * residualAngle * damping;
+
+            currentRecenterRotation = Quaternion.AngleAxis(angle, localRotationAxis);
+            updateCombinedRotation();
+
+            yield return null;
+
+        }
+
+        currentRecenterRotation = Quaternion.identity;
+        updateCombinedRotation();
+
+        recenterCoroutine = null;
+
+    }
+}
