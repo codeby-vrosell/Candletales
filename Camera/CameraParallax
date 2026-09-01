@@ -1,0 +1,136 @@
+// ============================================================
+// Readme of CameraParallax
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the parallax effect of the camera based on the mouse position, creating a sense of depth and dynamic movement during gameplay.
+It adapts its intensity dynamically, slowing down the parallax effect when UI panels are visible to maintain focus on the interface.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Calculates a parallax offset based on the mouse's position relative to the screen.
+- Smoothly interpolates the camera's local position towards the target offset.
+- Dynamically reduces the parallax intensity when UI panels are active.
+- Provides methods to recalculate the base origin or disable and center the camera.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using Unity.Cinemachine;
+
+public class CameraParallax : MonoBehaviour {
+
+    // ============================================================
+    // Parallax Settings
+    // ============================================================
+
+    [Header("Parallax Settings")]
+    public bool canParallax = true;
+    public float parallaxAmount;
+    public float smoothSpeed;
+    public float maxOffset;
+
+    [Range(0f, 1f)]
+    public float reducedParallax;
+
+    // ============================================================
+    // Panel Slowdown Settings
+    // ============================================================
+
+    [Header("Panel Slowdown Settings")]
+    [SerializeField] private BlurPanels blurPanels;
+    [SerializeField] private float normalParallaxFactor = 1f;
+    [SerializeField] private float panelParallaxFactor = 0.2f;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private float targetReducedParallax;
+    private Vector3 originalPosition;
+    private Vector3 targetPosition;
+
+    void Start() {
+
+        originalPosition = transform.localPosition;
+
+        targetReducedParallax = normalParallaxFactor;
+        reducedParallax = normalParallaxFactor;
+
+        if (blurPanels == null) {
+
+            blurPanels = FindFirstObjectByType<BlurPanels>();
+
+        }
+    }
+
+    void Update() {
+
+        if (canParallax == false) {
+
+            return;
+
+        }
+
+        float targetParallax;
+
+        if (blurPanels != null) {
+
+            if (blurPanels.Visible) {
+
+                targetParallax = 0.2f;
+
+            }
+
+            else {
+
+                targetParallax = 1f;
+
+            }
+        }
+
+        else {
+
+            targetParallax = 1f;
+
+        }
+
+        reducedParallax = Mathf.Lerp(reducedParallax, targetParallax, Time.deltaTime * 1f);
+
+        float mouseX = (Input.mousePosition.x / Screen.width - 0.5f) * 2f;
+        float mouseY = (Input.mousePosition.y / Screen.height - 0.5f) * 2f;
+
+        float effectiveParallax = parallaxAmount * reducedParallax;
+
+        Vector3 offset = new Vector3(mouseX, mouseY, 0f) * effectiveParallax;
+
+        offset.x = Mathf.Clamp(offset.x, -maxOffset, maxOffset);
+        offset.y = Mathf.Clamp(offset.y, -maxOffset, maxOffset);
+
+        targetPosition = originalPosition + offset;
+
+        transform.localPosition = Vector3.Lerp(transform.localPosition, targetPosition, Time.deltaTime * smoothSpeed);
+
+    }
+
+    public void recalculateOrigin() {
+
+        originalPosition = transform.localPosition;
+
+    }
+
+    public void disableAndCenter() {
+
+        canParallax = false;
+
+        transform.localPosition = originalPosition;
+
+    }
+}
