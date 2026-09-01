@@ -1,0 +1,40 @@
+// ============================================================
+// Readme of BiomeCellData
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure that determines the configuration of a single cell within a biome.
+It holds the specific tile types for the ground, obstacles, enemies, and interactive entities (like chests or bonfires) used during the procedural generation of the board.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the base ground tile type for a specific grid space.
+- Defines the type of obstacle that might occupy the cell.
+- Specifies which enemy type can be spawned on this tile.
+- Assigns interactive entities to the cell configuration.
+- Allows configuration directly from the Unity Inspector via serialization.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+
+[System.Serializable]
+public struct BiomeCellData {
+
+    // ============================================================
+    // Tile Configuration
+    // ============================================================
+
+    public TileType groundType;
+    public TileType obstacleType;
+    public TileType enemyType;
+    public TileType entityType;
+
+}
