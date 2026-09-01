@@ -1,0 +1,130 @@
+// ============================================================
+// Readme of FloatingNumberManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the instantiation of floating text feedback during gameplay.
+It handles visual information for combat such as damage, critical hits, and misses, as well as specific cycle modifiers like the Blood Moon bonuses.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Implements a singleton pattern for global access to floating text spawning.
+- Instantiates damage numbers for both the player and enemies during combat.
+- Spawns visual text feedback for luck bonuses and Blood Moon phase modifiers.
+- Triggers "miss" text when an attack fails to hit the target.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class FloatingNumberManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static FloatingNumberManager Instance;
+
+    // ============================================================
+    // Prefab References
+    // ============================================================
+
+    public GameObject damageFloatingNumberPrefab;
+
+    private void Awake() {
+
+        if (Instance != null && Instance != this) {
+
+            Destroy(gameObject);
+
+            return;
+
+        }
+
+        Instance = this;
+
+    }
+
+    public void spawnDamageFloatingNumber(int amount, Vector3 position, bool isCritical, Transform parent = null, bool isPlayer = false) {
+
+        if (damageFloatingNumberPrefab == null) {
+
+            return;
+
+        }
+
+        GameObject floatingNumberObject = Instantiate(damageFloatingNumberPrefab, position, Quaternion.identity, parent);
+
+        FloatingNumber floatingNumberScript = floatingNumberObject.GetComponent<FloatingNumber>();
+
+        if (floatingNumberScript != null) {
+
+            floatingNumberScript.setValue(amount, isCritical, isPlayer);
+
+        }
+    }
+
+    public void spawnLuckBonus(int amount, Vector3 position, Transform parent = null) {
+
+        if (damageFloatingNumberPrefab == null) {
+
+            return;
+
+        }
+
+        GameObject floatingNumberObject = Instantiate(damageFloatingNumberPrefab, position, Quaternion.identity, parent);
+
+        FloatingNumber floatingNumberScript = floatingNumberObject.GetComponent<FloatingNumber>();
+
+        if (floatingNumberScript != null) {
+
+            floatingNumberScript.setLuckBonus(amount);
+
+        }
+    }
+
+    public void spawnBloodMoonBonus(int amount, Vector3 position, Transform parent = null) {
+
+        if (damageFloatingNumberPrefab == null) {
+
+            return;
+
+        }
+
+        GameObject floatingNumberObject = Instantiate(damageFloatingNumberPrefab, position, Quaternion.identity, parent);
+
+        FloatingNumber floatingNumberScript = floatingNumberObject.GetComponent<FloatingNumber>();
+
+        if (floatingNumberScript != null) {
+
+            floatingNumberScript.setBloodMoonBonus(amount);
+
+        }
+    }
+
+    public void spawnMiss(Vector3 position, Transform parent = null) {
+
+        if (damageFloatingNumberPrefab == null) {
+
+            return;
+
+        }
+
+        GameObject floatingNumberObject = Instantiate(damageFloatingNumberPrefab, position, Quaternion.identity, parent);
+
+        FloatingNumber floatingNumberScript = floatingNumberObject.GetComponent<FloatingNumber>();
+
+        if (floatingNumberScript != null) {
+
+            floatingNumberScript.setMiss();
+
+        }
+    }
+}
