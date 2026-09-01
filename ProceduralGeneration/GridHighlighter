@@ -1,0 +1,2128 @@
+// ============================================================
+// Readme of GridHighlighter
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages visual feedback on the grid, including cursor hovering, pathfinding trails, and enemy perception areas.
+It uses custom shaders and MaterialPropertyBlocks to draw dynamic outlines and fills for combat zones, interactables, and movement ranges, supporting the game's tactical readability.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Highlights cells currently hovered by the mouse pointer.
+- Calculates and visually represents the player's movement path based on available cells.
+- Renders dynamic enemy perception areas and attack zones.
+- Interfaces with shaders via MaterialPropertyBlocks for efficient batch updates.
+- Updates the virtual perception cache for off-screen enemies to anticipate threats.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+public class GridHighlighter : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static GridHighlighter Instance;
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool interactionsEnabled = false;
+    public bool hoverCellWalkable = false;
+    public bool visibleGrid = false;
+    public Vector2Int hoverCellCoords;
+
+    [HideInInspector] public bool forcePerceptionRepaint = false;
+
+    // ============================================================
+    // Layer Settings
+    // ============================================================
+
+    [Header("Layer Settings")]
+    public LayerMask interactablesLayer;
+    public LayerMask enemyLayer;
+
+    // ============================================================
+    // Material Names
+    // ============================================================
+
+    [Header("Material Names")]
+    public string gridMaterialName;
+    public string areaMaterialName;
+    public string borderMaterialName;
+    public string playerAreaMaterialName;
+    public string perceptionMaterialName;
+
+    // ============================================================
+    // Grid Fade Settings
+    // ============================================================
+
+    [Header("Grid Fade Settings")]
+    public float fadeSpeed;
+    public float visibleAlpha;
+    public float hiddenAlpha;
+
+    // ============================================================
+    // Hover Settings
+    // ============================================================
+
+    [Header("Hover Settings")]
+    [ColorUsage(true, true)] public Color hoverColor;
+    [ColorUsage(true, true)] public Color hoverBlockedColor;
+    [ColorUsage(true, true)] public Color hoverInteractColor;
+
+    public float hoverThickness;
+    [Range(0f, 1f)] public float hoverFillAlpha;
+
+    // ============================================================
+    // Path Settings
+    // ============================================================
+
+    [Header("Path Settings")]
+    [ColorUsage(true, true)] public Color pathColor;
+    [ColorUsage(true, true)] public Color unpathColor;
+
+    public float pathThickness;
+    [Range(0f, 1f)] public float pathFillAlpha;
+
+    // ============================================================
+    // Area Settings
+    // ============================================================
+
+    [Header("Area Settings")]
+    [ColorUsage(true, true)] public Color perceptionAreaColor;
+    [ColorUsage(true, true)] public Color startAttackAreaColor;
+    [ColorUsage(true, true)] public Color endAttackAreaColor;
+
+    public float areaThickness;
+    [Range(0f, 1f)] public float areaFillAlpha;
+    public float areaAnimationDuration;
+    public float areaAnimationCellDelay;
+    public int maxPerceptionRange;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private GridManager gridManager;
+    private GridAnimations gridAnimations;
+    private PlayerControllerBase playerMover;
+    private BiomeGenerator biomeGenerator;
+
+    [HideInInspector] public Cell lastHoveredCell;
+    public Transform hoveredEnemyTransform;
+    private Transform lastOutlinedEnemyTransform;
+    private IInteractable lastHoveredInteractable;
+
+    // ============================================================
+    // Internal Collections
+    // ============================================================
+
+    private RaycastHit[] raycastResults = new RaycastHit[10];
+    private List<Cell> currentPathCells = new List<Cell>();
+
+    private HashSet<Vector2Int> currentPathPositions = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> validPathPositions = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> invalidPathPositions = new HashSet<Vector2Int>();
+    public HashSet<Vector2Int> currentPerceptionCells = new HashSet<Vector2Int>();
+    private HashSet<EnemyBase> perceivingEnemies = new HashSet<EnemyBase>();
+    private HashSet<Vector2Int> cachedVirtualPerception = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> cellsBeingAnimatedOut = new HashSet<Vector2Int>();
+
+    private Dictionary<TileType, int> enemyPerceptionCache = new Dictionary<TileType, int>();
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Vector2Int lastGridCenter = new Vector2Int(-99999, -99999);
+    private int lastCellsPerTurn = -1;
+    private Vector2Int lastPlayerGridPosition = new Vector2Int(-9999, -9999);
+    private float currentGridAlpha;
+    private float targetGridAlpha;
+    private int lastAttackHash = 0;
+    private int lastRealEnemiesCount = -1;
+    private int lastEnemyStateHash = 0;
+
+    // ============================================================
+    // Shader Property IDs
+    // ============================================================
+
+    private int baseColorId, fillColorId, alphaId, fillAlphaId, outlineThicknessId;
+    private int hideTopId, hideBottomId, hideLeftId, hideRightId;
+    private int hideTopRightId, hideTopLeftId, hideBottomRightId, hideBottomLeftId;
+    private int cutTopId, cutBottomId, cutLeftId, cutRightId;
+    private int animationProgressId, showOutlineId;
+
+    void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(this);
+
+        }
+    }
+
+    void Start() {
+
+        biomeGenerator = GetComponent<BiomeGenerator>();
+        gridManager = GetComponent<GridManager>();
+        gridAnimations = GetComponent<GridAnimations>();
+
+        baseColorId = Shader.PropertyToID("_BaseColor");
+        fillColorId = Shader.PropertyToID("_FillColor");
+        alphaId = Shader.PropertyToID("_Alpha");
+        fillAlphaId = Shader.PropertyToID("_FillAlpha");
+        outlineThicknessId = Shader.PropertyToID("_OutlineThickness");
+
+        hideTopId = Shader.PropertyToID("_HideTop");
+        hideBottomId = Shader.PropertyToID("_HideBottom");
+        hideLeftId = Shader.PropertyToID("_HideLeft");
+        hideRightId = Shader.PropertyToID("_HideRight");
+
+        hideTopRightId = Shader.PropertyToID("_HideTR");
+        hideTopLeftId = Shader.PropertyToID("_HideTL");
+        hideBottomRightId = Shader.PropertyToID("_HideBR");
+        hideBottomLeftId = Shader.PropertyToID("_HideBL");
+
+        cutTopId = Shader.PropertyToID("_CutTop");
+        cutBottomId = Shader.PropertyToID("_CutBottom");
+        cutLeftId = Shader.PropertyToID("_CutLeft");
+        cutRightId = Shader.PropertyToID("_CutRight");
+
+        animationProgressId = Shader.PropertyToID("_AnimProgress");
+        showOutlineId = Shader.PropertyToID("_ShowOutline");
+
+        currentGridAlpha = hiddenAlpha;
+        targetGridAlpha = hiddenAlpha;
+
+    }
+
+    void Update() {
+
+        handleGridFade();
+
+        if (interactionsEnabled == false) {
+
+            return;
+
+        }
+
+        assignPlayerWhenSpawn();
+        reloadPath();
+        handleHover();
+        handlePerceptionAreas();
+
+    }
+
+    public Coroutine startAreaAnimation(HashSet<Vector2Int> cells, System.Func<Vector2Int> getCenter, bool expand, System.Action onComplete = null, System.Func<Vector2Int, bool> isValidCell = null, System.Func<Color> getColor = null, HashSet<Vector2Int> cellsToAnimate = null, float speedMultiplier = 1f, string overrideMaterial = null) {
+
+        return StartCoroutine(areaAnimation(cells, getCenter, expand, onComplete, isValidCell, getColor, cellsToAnimate, speedMultiplier, overrideMaterial));
+
+    }
+
+    private void assignPlayerWhenSpawn() {
+
+        if (playerMover == null) {
+
+            GameObject playerGameObject = GameObject.FindGameObjectWithTag("Player");
+
+            if (playerGameObject != null && playerGameObject.transform.parent != null) {
+
+                playerGameObject = playerGameObject.transform.parent.gameObject;
+
+            }
+
+            if (playerGameObject == null) {
+
+                return;
+
+            }
+
+            playerMover = playerGameObject.GetComponent<PlayerControllerBase>();
+
+        }
+    }
+
+    private void handleHover() {
+
+        Vector2 mousePosition = Mouse.current.position.ReadValue();
+        Ray ray = Camera.main.ScreenPointToRay(mousePosition);
+
+        LayerMask combinedMask = interactablesLayer | enemyLayer;
+        int hitCount = Physics.RaycastNonAlloc(ray, raycastResults, Mathf.Infinity, combinedMask);
+
+        Cell bestCell = null;
+        IInteractable bestInteractable = null;
+        Transform bestInteractableTransform = null;
+        Transform bestEnemyTransform = null;
+
+        float minimumCellDistance = float.MaxValue;
+        float minimumInteractableDistance = float.MaxValue;
+
+        for (int i = 0; i < hitCount; i = i + 1) {
+
+            RaycastHit hit = raycastResults[i];
+            GameObject hitObject = hit.collider.gameObject;
+            Cell hitCell = getCellFromHit(hit);
+
+            if (hitCell != null && hit.distance < minimumCellDistance) {
+
+                minimumCellDistance = hit.distance;
+                bestCell = hitCell;
+
+            }
+
+            IInteractable interactable = hitObject.GetComponentInParent<IInteractable>();
+
+            if (interactable != null && interactable.canInteract() == true && hit.distance < minimumInteractableDistance) {
+
+                minimumInteractableDistance = hit.distance;
+                bestInteractable = interactable;
+                bestInteractableTransform = ((MonoBehaviour)interactable).transform;
+
+                if (isInLayerMask(hitObject, enemyLayer) == true) {
+
+                    bestEnemyTransform = bestInteractableTransform;
+
+                }
+            }
+        }
+
+        if (bestInteractable != null) {
+
+            Vector2Int interactableGridPosition = gridManager.worldToGridPosition(bestInteractableTransform.position);
+            bool hasInteractableCell = gridManager.getCells().TryGetValue(interactableGridPosition, out Cell interactableCell);
+
+            if (hasInteractableCell == true) {
+
+                bestCell = interactableCell;
+
+            }
+        }
+
+        bool targetChanged = false;
+
+        if (bestEnemyTransform != hoveredEnemyTransform) {
+
+            if (hoveredEnemyTransform != null) {
+
+                Outliner previousOutliner = hoveredEnemyTransform.GetComponent<Outliner>();
+
+                if (previousOutliner != null) {
+
+                    previousOutliner.enabled = false;
+
+                }
+            }
+
+            hoveredEnemyTransform = bestEnemyTransform;
+
+            if (hoveredEnemyTransform != null) {
+
+                Outliner newOutliner = hoveredEnemyTransform.GetComponent<Outliner>();
+
+                if (newOutliner != null) {
+
+                    newOutliner.enabled = true;
+
+                }
+            }
+
+            targetChanged = true;
+
+        }
+
+        if (bestInteractable != lastHoveredInteractable) {
+
+            lastHoveredInteractable = bestInteractable;
+            targetChanged = true;
+
+        }
+
+        if (bestCell != null) {
+
+            hoverCellCoords = bestCell.gridPosition;
+            hoverCellWalkable = bestCell.isWalkable;
+            visibleGrid = true;
+
+            bool pathInvalidated = false;
+
+            if (currentPathCells.Count > 0) {
+
+                for (int j = 0; j < currentPathCells.Count; j = j + 1) {
+
+                    Cell pathCell = currentPathCells[j];
+
+                    if (pathCell.isWalkable == false || pathCell.currentStateOfCell == Cell.StateOfCell.occupied) {
+
+                        if (j == 0) {
+
+                            continue;
+
+                        }
+
+                        bool isGoal = (j == currentPathCells.Count - 1);
+
+                        if (isGoal == true && bestInteractable != null) {
+
+                            continue;
+
+                        }
+
+                        pathInvalidated = true;
+                        break;
+
+                    }
+                }
+            }
+
+            if (bestCell != lastHoveredCell || currentPathCells.Count == 0 || targetChanged == true || pathInvalidated == true) {
+
+                resetHighlight();
+
+                bool isReachable = false;
+                List<Vector2Int> targetPath = null;
+                Vector2Int startPosition = Vector2Int.zero;
+                Vector2Int goalPosition = bestCell.gridPosition;
+
+                if (playerMover != null && gridAnimations.centerAnimationEnded == true) {
+
+                    startPosition = playerMover.getCurrentGridPos();
+
+                    if (bestInteractable != null) {
+
+                        List<Vector2Int> targetFootprint = bestInteractable.getFootprint();
+
+                        if (isAdjacentToFootprint(startPosition, targetFootprint) == true) {
+
+                            goalPosition = startPosition;
+
+                        }
+
+                        else {
+
+                            int infiniteRange = 999;
+                            goalPosition = playerMover.selectCloserWalkableCellToTargetInRange(bestInteractableTransform, infiniteRange);
+
+                        }
+                    }
+
+                    if (startPosition == goalPosition) {
+
+                        isReachable = true;
+
+                    }
+
+                    else {
+
+                        targetPath = Pathfinder.findPath(startPosition, goalPosition, gridManager.getCells());
+                        
+                        if (targetPath != null && targetPath.Count > 0) {
+
+                            isReachable = true;
+
+                        }
+
+                        else {
+
+                            isReachable = false;
+
+                        }
+                    }
+                }
+
+                Color targetColor;
+                bool shouldBlockCursor = false;
+
+                if (hoveredEnemyTransform != null) {
+
+                    targetColor = hoverBlockedColor;
+                    shouldBlockCursor = false;
+
+                }
+
+                else if (bestInteractable != null && isReachable == true) {
+
+                    targetColor = hoverInteractColor;
+                    shouldBlockCursor = false;
+
+                }
+
+                else if (bestCell.isWalkable == true && isReachable == true) {
+
+                    targetColor = hoverColor;
+                    shouldBlockCursor = false;
+
+                }
+
+                else {
+
+                    targetColor = hoverBlockedColor;
+                    shouldBlockCursor = true;
+
+                }
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.setBlockedState(shouldBlockCursor);
+
+                }
+
+                setHoverMaterial(bestCell, targetColor, 1f, hoverFillAlpha, hoverThickness);
+                lastHoveredCell = bestCell;
+
+                if (isReachable == true && targetPath != null && targetPath.Count > 0) {
+
+                    int maximumCells = PlayerManager.Instance.cellsPerTurn;
+
+                    if (playerMover != null && playerMover.isMoving == true) {
+
+                        if (playerMover.currentPathLeft != null && playerMover.currentPathLeft.Count > 1) {
+
+                            Vector2Int currentJumpDestination = playerMover.currentPathLeft[1];
+
+                            if (playerMover.getCurrentGridPos() == currentJumpDestination) {
+
+                                bool hasJumpCell = gridManager.getCells().TryGetValue(currentJumpDestination, out Cell jumpCell);
+
+                                if (hasJumpCell == true) {
+
+                                    maximumCells = maximumCells - jumpCell.movementCost;
+                                    maximumCells = Mathf.Max(0, maximumCells);
+
+                                }
+                            }
+                        }
+                    }
+
+                    int precalculatedCost = 0;
+
+                    foreach (Vector2Int pathPosition in targetPath) {
+
+                        currentPathPositions.Add(pathPosition);
+                        bool hasCellData = gridManager.getCells().TryGetValue(pathPosition, out Cell currentCell);
+
+                        if (hasCellData == true) {
+
+                            if (pathPosition != startPosition) {
+
+                                precalculatedCost = precalculatedCost + currentCell.movementCost;
+
+                            }
+
+                            if (precalculatedCost <= maximumCells && maximumCells > 0) {
+
+                                validPathPositions.Add(pathPosition);
+
+                            }
+                        }
+                    }
+
+                    int currentPathCost = 0;
+                    Vector2Int visualGoalPosition;
+
+                    if (bestInteractable != null) {
+
+                        visualGoalPosition = new Vector2Int(-99999, -99999);
+
+                    }
+
+                    else {
+
+                        visualGoalPosition = goalPosition;
+
+                    }
+
+                    foreach (Vector2Int targetPosition in targetPath) {
+
+                        bool hasPathCell = gridManager.getCells().TryGetValue(targetPosition, out Cell pathCell);
+
+                        if (hasPathCell == false) {
+
+                            continue;
+
+                        }
+
+                        if (targetPosition != startPosition) {
+
+                            currentPathCost = currentPathCost + pathCell.movementCost;
+
+                        }
+
+                        if (targetPosition == goalPosition) {
+
+                            if (bestInteractable != null) {
+
+                                if (currentPathCost <= maximumCells && maximumCells > 0) {
+
+                                    setPathMaterial(pathCell, pathColor, 1f, pathFillAlpha, currentPathPositions, validPathPositions, visualGoalPosition);
+
+                                }
+
+                                else {
+
+                                    setPathMaterial(pathCell, unpathColor, 1f, pathFillAlpha, currentPathPositions, validPathPositions, visualGoalPosition);
+
+                                }
+                            }
+
+                            else {
+
+                                setPathMaterial(pathCell, targetColor, 1f, hoverFillAlpha, currentPathPositions, validPathPositions, visualGoalPosition);
+
+                            }
+                        }
+
+                        else {
+
+                            if (currentPathCost <= maximumCells && maximumCells > 0) {
+
+                                setPathMaterial(pathCell, pathColor, 1f, pathFillAlpha, currentPathPositions, validPathPositions, visualGoalPosition);
+
+                            }
+
+                            else {
+
+                                setPathMaterial(pathCell, unpathColor, 1f, pathFillAlpha, currentPathPositions, validPathPositions, visualGoalPosition);
+
+                            }
+                        }
+
+                        currentPathCells.Add(pathCell);
+
+                    }
+                }
+            }
+
+            if (playerMover != null && playerMover.isMoving == false) {
+
+                if (bestInteractable != null) {
+
+                    Vector2Int myGridPosition = playerMover.getCurrentGridPos();
+
+                    if (isAdjacentToFootprint(myGridPosition, bestInteractable.getFootprint()) == true) {
+
+                        Vector3 positionTarget = bestInteractableTransform.position; 
+                        positionTarget.y = 0f;
+                        playerMover.lookPos = positionTarget;
+
+                    }
+
+                    else if (currentPathCells.Count > 1) {
+
+                        Vector3 nextPosition = gridManager.gridToWorldPosition(currentPathCells[1].gridPosition);
+                        playerMover.lookPos = nextPosition;
+
+                    }
+                }
+
+                else if (currentPathCells.Count > 1) {
+
+                    Vector3 nextPosition = gridManager.gridToWorldPosition(currentPathCells[1].gridPosition);
+                    playerMover.lookPos = nextPosition;
+
+                }
+            }
+        }
+
+        else {
+
+            if (hoveredEnemyTransform != null) {
+
+                Outliner outlinerComponent = hoveredEnemyTransform.GetComponent<Outliner>();
+
+                if (outlinerComponent != null) {
+
+                    outlinerComponent.enabled = false;
+
+                }
+
+                hoveredEnemyTransform = null;
+
+            }
+
+            visibleGrid = false;
+            resetHighlight();
+
+        }
+    }
+
+    private bool isAdjacentToFootprint(Vector2Int myPosition, List<Vector2Int> targetFootprint) {
+
+        Vector2Int[] directions = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        foreach (Vector2Int direction in directions) {
+
+            if (targetFootprint.Contains(myPosition + direction) == true) {
+
+                return true;
+
+            }
+        }
+
+        return false;
+
+    }
+
+    private bool isAdjacent(Vector2Int positionA, Vector2Int positionB) {
+
+        return Mathf.Abs(positionA.x - positionB.x) + Mathf.Abs(positionA.y - positionB.y) == 1;
+
+    }
+
+    private bool isInLayerMask(GameObject targetObject, LayerMask mask) {
+
+        return (mask.value & (1 << targetObject.layer)) != 0;
+
+    }
+
+    private void resetHighlight() {
+
+        if (lastHoveredCell != null) {
+
+            setHoverMaterial(lastHoveredCell, Color.clear, 0f, 0f, 0.1f);
+            lastHoveredCell = null;
+
+        }
+
+        foreach (var pathCell in currentPathCells) {
+
+            setPathMaterial(pathCell, Color.clear, 0f, 0f, null, null, new Vector2Int(-999, -999));
+
+        }
+
+        currentPathCells.Clear();
+        currentPathPositions.Clear();
+        validPathPositions.Clear();
+        invalidPathPositions.Clear();
+
+        if (CursorManager.Instance != null) {
+
+            CursorManager.Instance.setBlockedState(false);
+
+        }
+    }
+
+    private void setHoverMaterial(Cell cell, Color color, float targetAlpha, float fillAlpha, float thickness) {
+
+        applyMaterialProperties(cell, gridMaterialName, propertyBlock => {
+
+            propertyBlock.SetColor(baseColorId, color);
+            propertyBlock.SetColor(fillColorId, color);
+            propertyBlock.SetFloat(alphaId, targetAlpha);
+            propertyBlock.SetFloat(fillAlphaId, fillAlpha);
+            propertyBlock.SetFloat(outlineThicknessId, thickness);
+
+            propertyBlock.SetFloat(hideTopId, 0f); 
+            propertyBlock.SetFloat(hideBottomId, 0f);
+            propertyBlock.SetFloat(hideRightId, 0f); 
+            propertyBlock.SetFloat(hideLeftId, 0f);
+            propertyBlock.SetFloat(hideTopRightId, 0f); 
+            propertyBlock.SetFloat(hideTopLeftId, 0f);
+            propertyBlock.SetFloat(hideBottomRightId, 0f); 
+            propertyBlock.SetFloat(hideBottomLeftId, 0f);
+
+            propertyBlock.SetFloat(cutTopId, 0f); 
+            propertyBlock.SetFloat(cutBottomId, 0f);
+            propertyBlock.SetFloat(cutRightId, 0f); 
+            propertyBlock.SetFloat(cutLeftId, 0f);
+
+        });
+    }
+
+    private void setPathMaterial(Cell cell, Color color, float targetAlpha, float fillAlpha, HashSet<Vector2Int> allPath, HashSet<Vector2Int> validPath, Vector2Int goalPosition) {
+
+        int getZone(Vector2Int zonePosition) {
+
+            if (zonePosition == goalPosition) {
+
+                return 2;
+
+            }
+
+            if (validPath != null && validPath.Contains(zonePosition) == true) {
+
+                return 1;
+
+            }
+
+            return 0;
+
+        }
+
+        applyMaterialProperties(cell, gridMaterialName, propertyBlock => {
+
+            propertyBlock.SetColor(baseColorId, color);
+            propertyBlock.SetColor(fillColorId, color);
+            propertyBlock.SetFloat(alphaId, targetAlpha);
+            propertyBlock.SetFloat(fillAlphaId, fillAlpha);
+            propertyBlock.SetFloat(outlineThicknessId, pathThickness);
+
+            if (allPath != null && allPath.Count > 0) {
+
+                Vector2Int cellPosition = cell.gridPosition;
+
+                bool hasTopNeighbor = allPath.Contains(cellPosition + new Vector2Int(0, 1));
+                bool hasBottomNeighbor = allPath.Contains(cellPosition + new Vector2Int(0, -1));
+                bool hasRightNeighbor = allPath.Contains(cellPosition + new Vector2Int(1, 0));
+                bool hasLeftNeighbor = allPath.Contains(cellPosition + new Vector2Int(-1, 0));
+
+                bool hasTopRightNeighbor = allPath.Contains(cellPosition + new Vector2Int(1, 1));
+                bool hasTopLeftNeighbor = allPath.Contains(cellPosition + new Vector2Int(-1, 1));
+                bool hasBottomRightNeighbor = allPath.Contains(cellPosition + new Vector2Int(1, -1));
+                bool hasBottomLeftNeighbor = allPath.Contains(cellPosition + new Vector2Int(-1, -1));
+
+                float topValue;
+
+                if (hasTopNeighbor == true) {
+
+                    topValue = 1f;
+
+                }
+
+                else {
+
+                    topValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideTopId, topValue);
+
+                float bottomValue;
+
+                if (hasBottomNeighbor == true) {
+
+                    bottomValue = 1f;
+
+                }
+
+                else {
+
+                    bottomValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideBottomId, bottomValue);
+
+                float rightValue;
+
+                if (hasRightNeighbor == true) {
+
+                    rightValue = 1f;
+
+                }
+
+                else {
+
+                    rightValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideRightId, rightValue);
+
+                float leftValue;
+
+                if (hasLeftNeighbor == true) {
+
+                    leftValue = 1f;
+
+                }
+
+                else {
+
+                    leftValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideLeftId, leftValue);
+
+                float topRightValue;
+
+                if (hasTopRightNeighbor == true) {
+
+                    topRightValue = 1f;
+
+                }
+
+                else {
+
+                    topRightValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideTopRightId, topRightValue);
+
+                float topLeftValue;
+
+                if (hasTopLeftNeighbor == true) {
+
+                    topLeftValue = 1f;
+
+                }
+
+                else {
+
+                    topLeftValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideTopLeftId, topLeftValue);
+
+                float bottomRightValue;
+
+                if (hasBottomRightNeighbor == true) {
+
+                    bottomRightValue = 1f;
+
+                }
+
+                else {
+
+                    bottomRightValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideBottomRightId, bottomRightValue);
+
+                float bottomLeftValue;
+
+                if (hasBottomLeftNeighbor == true){
+
+                    bottomLeftValue = 1f;
+
+                }
+
+                else {
+
+                    bottomLeftValue = 0f;
+
+                }
+
+                propertyBlock.SetFloat(hideBottomLeftId, bottomLeftValue);
+
+                int myZone = getZone(cellPosition);
+                bool cutTop = false, cutBottom = false, cutRight = false, cutLeft = false;
+
+                if (hasTopNeighbor == true) {
+
+                    if (getZone(cellPosition + new Vector2Int(0, 1)) != myZone) {
+
+                        cutTop = true;
+
+                    }
+                }
+
+                if (hasBottomNeighbor == true) {
+
+                    if (getZone(cellPosition + new Vector2Int(0, -1)) != myZone) {
+
+                        cutBottom = true;
+
+                    }
+                }
+
+                if (hasRightNeighbor == true) {
+
+                    if (getZone(cellPosition + new Vector2Int(1, 0)) != myZone) {
+
+                        cutRight = true;
+
+                    }
+                }
+
+                if (hasLeftNeighbor == true) {
+
+                    if (getZone(cellPosition + new Vector2Int(-1, 0)) != myZone) {
+
+                        cutLeft = true;
+
+                    }
+                }
+
+                if (cutTop == true) {
+
+                    propertyBlock.SetFloat(cutTopId, 1f);
+
+                }
+
+                else {
+
+                    propertyBlock.SetFloat(cutTopId, 0f);
+
+                }
+
+                if (cutBottom == true) {
+
+                    propertyBlock.SetFloat(cutBottomId, 1f);
+
+                }
+
+                else {
+
+                    propertyBlock.SetFloat(cutBottomId, 0f);
+
+                }
+
+                if (cutRight == true) {
+
+                    propertyBlock.SetFloat(cutRightId, 1f);
+
+                }
+
+                else {
+
+                    propertyBlock.SetFloat(cutRightId, 0f);
+
+                }
+
+                if (cutLeft == true) {
+
+                    propertyBlock.SetFloat(cutLeftId, 1f);
+
+                }
+
+                else {
+
+                    propertyBlock.SetFloat(cutLeftId, 0f);
+
+                }
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideTopId, 0f);
+                propertyBlock.SetFloat(hideBottomId, 0f);
+                propertyBlock.SetFloat(hideRightId, 0f);
+                propertyBlock.SetFloat(hideLeftId, 0f);
+                propertyBlock.SetFloat(hideTopRightId, 0f);
+                propertyBlock.SetFloat(hideTopLeftId, 0f);
+                propertyBlock.SetFloat(hideBottomRightId, 0f);
+                propertyBlock.SetFloat(hideBottomLeftId, 0f);
+
+                propertyBlock.SetFloat(cutTopId, 0f);
+                propertyBlock.SetFloat(cutBottomId, 0f);
+                propertyBlock.SetFloat(cutRightId, 0f);
+                propertyBlock.SetFloat(cutLeftId, 0f);
+
+            }
+        });
+    }
+
+    private void setAreaCell(Cell cell, HashSet<Vector2Int> areaPositions, float overrideProgress, float outlineAlpha, Color color, System.Func<Vector2Int, bool> isValidCell = null, bool isPerception = false, string overrideMaterial = null) {
+
+        Vector2Int cellPosition = cell.gridPosition;
+
+        bool hasTopNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(0, 1), areaPositions, isValidCell, isPerception);
+        bool hasBottomNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(0, -1), areaPositions, isValidCell, isPerception);
+        bool hasRightNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(1, 0), areaPositions, isValidCell, isPerception);
+        bool hasLeftNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(-1, 0), areaPositions, isValidCell, isPerception);
+
+        bool hasTopRightNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(1, 1), areaPositions, isValidCell, isPerception);
+        bool hasTopLeftNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(-1, 1), areaPositions, isValidCell, isPerception);
+        bool hasBottomRightNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(1, -1), areaPositions, isValidCell, isPerception);
+        bool hasBottomLeftNeighbor = areCellsInSamePlane(cellPosition, cellPosition + new Vector2Int(-1, -1), areaPositions, isValidCell, isPerception);
+
+        string targetMaterial;
+
+        if (overrideMaterial != null) {
+
+            targetMaterial = overrideMaterial;
+
+        }
+
+        else {
+
+            targetMaterial = areaMaterialName;
+
+        }
+
+        applyMaterialProperties(cell, targetMaterial, propertyBlock => {
+
+            propertyBlock.SetColor(baseColorId, color);
+            propertyBlock.SetColor(fillColorId, color);
+            propertyBlock.SetFloat(alphaId, 1f);
+            propertyBlock.SetFloat(fillAlphaId, areaFillAlpha);
+            propertyBlock.SetFloat(outlineThicknessId, areaThickness);
+
+            if (hasTopNeighbor == true) {
+
+                propertyBlock.SetFloat(hideTopId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideTopId, 0f);
+
+            }
+
+            if (hasBottomNeighbor == true) {
+
+                propertyBlock.SetFloat(hideBottomId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideBottomId, 0f);
+
+            }
+
+            if (hasRightNeighbor == true) {
+
+                propertyBlock.SetFloat(hideRightId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideRightId, 0f);
+
+            }
+
+            if (hasLeftNeighbor == true) {
+
+                propertyBlock.SetFloat(hideLeftId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideLeftId, 0f);
+
+            }
+
+            if (hasTopRightNeighbor == true) {
+
+                propertyBlock.SetFloat(hideTopRightId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideTopRightId, 0f);
+
+            }
+
+            if (hasTopLeftNeighbor == true) {
+
+                propertyBlock.SetFloat(hideTopLeftId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideTopLeftId, 0f);
+
+            }
+
+            if (hasBottomRightNeighbor == true) {
+
+                propertyBlock.SetFloat(hideBottomRightId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideBottomRightId, 0f);
+
+            }
+
+            if (hasBottomLeftNeighbor == true) {
+
+                propertyBlock.SetFloat(hideBottomLeftId, 1f);
+
+            }
+
+            else {
+
+                propertyBlock.SetFloat(hideBottomLeftId, 0f);
+
+            }
+
+            propertyBlock.SetFloat(cutTopId, 0f); 
+            propertyBlock.SetFloat(cutBottomId, 0f);
+            propertyBlock.SetFloat(cutRightId, 0f); 
+            propertyBlock.SetFloat(cutLeftId, 0f);
+
+            if (overrideProgress >= 0f) {
+
+                propertyBlock.SetFloat(animationProgressId, overrideProgress);
+
+            }
+
+            propertyBlock.SetFloat(showOutlineId, outlineAlpha);
+
+        });
+    }
+
+    public void updateAreaInstant(HashSet<Vector2Int> areaPositions, bool isAnimating = false, Color? overrideColor = null, System.Func<Vector2Int, bool> isValidCell = null) {
+
+        Color selectedColor;
+
+        if (overrideColor != null) {
+
+            selectedColor = overrideColor.Value;
+
+        }
+
+        else {
+
+            selectedColor = endAttackAreaColor;
+
+        }
+
+        foreach (Vector2Int position in areaPositions) {
+
+            if (isValidCell != null && isValidCell(position) == false) {
+
+                continue;
+
+            }
+
+            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+            if (cellExists == true) {
+
+                if (isAnimating == true) {
+
+                    setAreaCell(targetCell, areaPositions, -1f, 0f, selectedColor, isValidCell);
+
+                }
+
+                else {
+
+                    setAreaCell(targetCell, areaPositions, 1f, 1f, selectedColor, isValidCell);
+
+                }
+            }
+        }
+    }
+
+    public void updateAreaColor(HashSet<Vector2Int> areaPositions, Color color) {
+
+        foreach (Vector2Int position in areaPositions) {
+
+            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+            if (cellExists == true) {
+
+                applyMaterialProperties(targetCell, areaMaterialName, propertyBlock => {
+
+                    propertyBlock.SetColor(baseColorId, color);
+                    propertyBlock.SetColor(fillColorId, color);
+
+                });
+            }
+        }
+    }
+
+    public void clearCells(IEnumerable<Vector2Int> cellsToClear) {
+
+        foreach (Vector2Int position in cellsToClear) {
+
+            if (cellsBeingAnimatedOut.Contains(position) == true) {
+
+                continue;
+
+            }
+
+            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+            if (cellExists == true) {
+
+                if (currentPerceptionCells.Contains(position) == false) {
+
+                    applyMaterialProperties(targetCell, perceptionMaterialName, propertyBlock => {
+
+                        propertyBlock.SetFloat(alphaId, 0f);
+                        propertyBlock.SetFloat(fillAlphaId, 0f);
+                        propertyBlock.SetFloat(showOutlineId, 0f);
+
+                    });
+                }
+
+                applyMaterialProperties(targetCell, areaMaterialName, propertyBlock => {
+
+                    propertyBlock.SetFloat(alphaId, 0f);
+                    propertyBlock.SetFloat(fillAlphaId, 0f);
+                    propertyBlock.SetFloat(showOutlineId, 0f);
+
+                });
+            }
+        }
+    }
+
+    public IEnumerator areaAnimation(HashSet<Vector2Int> areaPositions, System.Func<Vector2Int> getCenter, bool expand, System.Action onComplete = null, System.Func<Vector2Int, bool> isValidCell = null, System.Func<Color> getColor = null, HashSet<Vector2Int> cellsToAnimate = null, float speedMultiplier = 1f, string overrideMaterial = null)  {
+
+        float currentDuration = areaAnimationDuration / speedMultiplier;
+        float currentDelay = areaAnimationCellDelay / speedMultiplier;
+
+        if (expand == true) {
+
+            Color initialColor;
+
+            if (getColor != null) {
+
+                initialColor = getColor();
+
+            }
+
+            else {
+
+                initialColor = endAttackAreaColor;
+
+            }
+
+            foreach (Vector2Int position in areaPositions) {
+
+                if (isValidCell != null && isValidCell(position) == false) {
+
+                    continue;
+
+                }
+
+                if (cellsToAnimate != null && cellsToAnimate.Contains(position) == false) {
+
+                    continue;
+
+                }
+
+                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+                if (cellExists == true) {
+
+                    setAreaCell(targetCell, areaPositions, 0f, 0f, initialColor, isValidCell, false, overrideMaterial);
+
+                }
+            }
+        }
+
+        float timer = 0f;
+
+        while (true) {
+
+            timer = timer + ClockManager.Instance.internalDeltaTime;
+            bool isAllDone = true;
+            Color currentColor;
+
+            if (getColor != null) {
+
+                currentColor = getColor();
+
+            }
+
+            else {
+
+                currentColor = endAttackAreaColor;
+
+            }
+
+            Vector2Int centerPosition = getCenter();
+            int maximumRadius = 0;
+
+            foreach (var position in areaPositions) {
+
+                int currentDistance = Mathf.Abs(position.x - centerPosition.x) + Mathf.Abs(position.y - centerPosition.y);
+
+                if (currentDistance > maximumRadius) {
+
+                    maximumRadius = currentDistance;
+
+                }
+            }
+
+            bool hasAnimatedCells;
+
+            if (cellsToAnimate != null) {
+
+                hasAnimatedCells = cellsToAnimate.Count > 0;
+
+            }
+
+            else {
+
+                hasAnimatedCells = areaPositions.Count > 0;
+
+            }
+
+            if (hasAnimatedCells == false && timer < 0.2f) {
+
+                isAllDone = false;
+
+            }
+
+            foreach (Vector2Int position in areaPositions) {
+
+                if (isValidCell != null && isValidCell(position) == false) {
+
+                    continue;
+
+                }
+
+                if (cellsToAnimate != null && cellsToAnimate.Contains(position) == false) {
+
+                    bool staticCellExists = gridManager.getCells().TryGetValue(position, out Cell staticCell);
+
+                    if (staticCellExists == true) {
+
+                        setAreaCell(staticCell, areaPositions, 1f, 1f, currentColor, isValidCell, false, overrideMaterial);
+
+                    }
+
+                    continue;
+
+                }
+
+                int currentDistance = Mathf.Abs(position.x - centerPosition.x) + Mathf.Abs(position.y - centerPosition.y);
+                float animationDelay;
+
+                if (expand == true) {
+
+                    animationDelay = currentDistance * currentDelay;
+
+                }
+
+                else {
+
+                    animationDelay = (maximumRadius - currentDistance) * currentDelay;
+
+                }
+
+                float animationProgress = Mathf.Clamp01((timer - animationDelay) / currentDuration);
+
+                if (animationProgress < 1f) {
+
+                    isAllDone = false;
+
+                }
+
+                float smoothedProgress = Mathf.SmoothStep(0f, 1f, animationProgress);
+                float finalScale;
+
+                if (expand == true) {
+
+                    finalScale = smoothedProgress;
+
+                }
+
+                else {
+
+                    finalScale = 1f - smoothedProgress;
+
+                }
+
+                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+                if (cellExists == true) {
+
+                    setAreaCell(targetCell, areaPositions, finalScale, 0f, currentColor, isValidCell, false, overrideMaterial);
+
+                }
+            }
+
+            if (isAllDone == true || timer > 10f) {
+
+                break;
+
+            }
+
+            yield return null;
+
+        }
+
+        if (expand == true) {
+
+            Color finalColor;
+
+            if (getColor != null) {
+
+                finalColor = getColor();
+
+            }
+
+            else {
+
+                finalColor = endAttackAreaColor;
+
+            }
+
+            foreach (Vector2Int position in areaPositions) {
+
+                if (isValidCell != null && isValidCell(position) == false) {
+
+                    continue;
+
+                }
+
+                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+                if (cellExists == true) {
+
+                    setAreaCell(targetCell, areaPositions, 1f, 1f, finalColor, isValidCell, false, overrideMaterial);
+
+                }
+            }
+        }
+
+        else {
+
+            foreach (Vector2Int position in areaPositions) {
+
+                if (isValidCell != null && isValidCell(position) == false) {
+
+                    continue;
+
+                }
+
+                if (cellsToAnimate != null && cellsToAnimate.Contains(position) == false) {
+
+                    continue;
+
+                }
+
+                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+                if (cellExists == true) {
+
+                    string targetMaterial;
+
+                    if (overrideMaterial != null) {
+
+                        targetMaterial = overrideMaterial;
+
+                    }
+
+                    else {
+
+                        targetMaterial = areaMaterialName;
+
+                    }
+
+                    applyMaterialProperties(targetCell, targetMaterial, propertyBlock => {
+
+                        propertyBlock.SetFloat(alphaId, 0f);
+                        propertyBlock.SetFloat(fillAlphaId, 0f);
+                        propertyBlock.SetFloat(showOutlineId, 0f);
+
+                    });
+                }
+            }
+        }
+
+        if (onComplete != null) {
+
+            onComplete.Invoke();
+
+        }
+    }
+
+    public void forceClearVisual(GameObject visualObject) {
+
+        if (visualObject == null) {
+
+            return;
+
+        }
+
+        Renderer[] meshRenderers = visualObject.GetComponentsInChildren<Renderer>();
+
+        foreach (Renderer meshRenderer in meshRenderers) {
+
+            for (int i = 1; i < meshRenderer.sharedMaterials.Length; i = i + 1) {
+
+                MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+
+                meshRenderer.GetPropertyBlock(propertyBlock, i);
+
+                propertyBlock.SetFloat(alphaId, 0f);
+                propertyBlock.SetFloat(fillAlphaId, 0f);
+                propertyBlock.SetFloat(showOutlineId, 0f);
+
+                meshRenderer.SetPropertyBlock(propertyBlock, i);
+
+            }
+        }
+    }
+
+    private bool areCellsInSamePlane(Vector2Int myPosition, Vector2Int neighborPosition, HashSet<Vector2Int> areaPositions, System.Func<Vector2Int, bool> isValidCell = null, bool isPerception = false) {
+
+        bool isNeighborInSameAttack = areaPositions.Contains(neighborPosition);
+
+        if (isNeighborInSameAttack == true && isValidCell != null) {
+
+            if (isValidCell(neighborPosition) == false) {
+
+                isNeighborInSameAttack = false;
+
+            }
+        }
+
+        if (isPerception == true && isNeighborInSameAttack == true) {
+
+            return true;
+
+        }
+
+        bool isNeighborInFusibleAttack = false;
+
+        if (isNeighborInSameAttack == false && isPerception == false) {
+
+            float myTimeRemaining = -1f;
+            bool foundMyCast = false;
+
+            foreach (var attackSystem in AttackSystem.allSystems) {
+
+                foreach (var activeCast in attackSystem.casts.Values) {
+
+                    if (activeCast.cells == areaPositions) {
+
+                        myTimeRemaining = 1f - activeCast.timer;
+                        foundMyCast = true;
+                        break;
+
+                    }
+                }
+
+                if (foundMyCast == true) {
+
+                    break;
+
+                }
+            }
+
+            if (foundMyCast == true) {
+
+                float otherMinimumTimeRemaining = float.MaxValue;
+                bool foundOtherCast = false;
+
+                foreach (var attackSystem in AttackSystem.allSystems) {
+
+                    foreach (var otherCast in attackSystem.casts.Values) {
+
+                        if (otherCast.cells.Contains(neighborPosition) == true) {
+
+                            float timeRemaining = 1f - otherCast.timer;
+
+                            if (timeRemaining < otherMinimumTimeRemaining) {
+
+                                otherMinimumTimeRemaining = timeRemaining;
+                                foundOtherCast = true;
+
+                            }
+                        }
+                    }
+                }
+
+                if (foundOtherCast == true) {
+
+                    float timeTolerance = 0.1f;
+                    bool isSynchronized = Mathf.Abs(myTimeRemaining - otherMinimumTimeRemaining) <= timeTolerance;
+                    bool areBothLocked = myTimeRemaining <= 0.01f && otherMinimumTimeRemaining <= 0.01f;
+
+                    if (isSynchronized == true || areBothLocked == true) {
+
+                        isNeighborInFusibleAttack = true;
+
+                    }
+                }
+            }
+        }
+
+        if (isNeighborInSameAttack == false && isNeighborInFusibleAttack == false) {
+
+            return false;
+
+        }
+
+        bool myCellExists = gridManager.getCells().TryGetValue(myPosition, out Cell myCell);
+
+        if (myCellExists == true) {
+
+            bool neighborCellExists = gridManager.getCells().TryGetValue(neighborPosition, out Cell neighborCell);
+
+            if (neighborCellExists == true) {
+
+                if (myCell.visual != null && neighborCell.visual != null) {
+
+                    float myHeight = myCell.visual.transform.localPosition.y;
+                    float neighborHeight = neighborCell.visual.transform.localPosition.y;
+
+                    return Mathf.Abs(myHeight - neighborHeight) <= 0.05f;
+
+                }
+            }
+
+            else {
+
+                return true;
+
+            }
+        }
+
+        return false;
+
+    }
+
+    private void handleGridFade() {
+
+        if (visibleGrid == true) {
+
+            targetGridAlpha = visibleAlpha;
+
+        }
+
+        else {
+
+            targetGridAlpha = hiddenAlpha;
+
+        }
+
+        currentGridAlpha = Mathf.Lerp(currentGridAlpha, targetGridAlpha, Time.deltaTime * fadeSpeed);
+        applyAlphaToGrid(currentGridAlpha);
+
+    }
+
+    private void applyAlphaToGrid(float targetAlpha) {
+
+        if (gridManager == null) {
+
+            return;
+
+        }
+
+        foreach (var keyValuePair in gridManager.getCells()) {
+
+            Cell targetCell = keyValuePair.Value;
+
+            if (targetCell == null || targetCell.visual == null) {
+
+                continue;
+
+            }
+
+            applyMaterialProperties(targetCell, borderMaterialName, propertyBlock => {
+
+                propertyBlock.SetFloat(alphaId, targetAlpha);
+
+            });
+        }
+    }
+
+    private void handlePerceptionAreas() {
+
+        HashSet<Vector2Int> newPerceptionCells = new HashSet<Vector2Int>();
+        HashSet<EnemyBase> currentPerceivingEnemies = new HashSet<EnemyBase>();
+
+        int currentEnemyStateHash = 17;
+        Vector2Int centerPosition = gridManager.gridCenter;
+
+        foreach (var attackSystem in AttackSystem.allSystems) {
+
+            EnemyBase enemyComponent = attackSystem.GetComponent<EnemyBase>();
+
+            if (enemyComponent != null && enemyComponent.currentState != EnemyBase.states.Death) {
+
+                if (enemyComponent.currentState == EnemyBase.states.Patrolling && enemyComponent.enteredCombat == false && enemyComponent.playerDetected == false) {
+
+                    unchecked {
+
+                        currentEnemyStateHash = currentEnemyStateHash * 31 + enemyComponent.currentGridPos.GetHashCode();
+                        currentEnemyStateHash = currentEnemyStateHash * 31 + enemyComponent.perceptionRange;
+
+                    }
+
+                    newPerceptionCells.UnionWith(enemyComponent.getPerceptionCells());
+                    currentPerceivingEnemies.Add(enemyComponent);
+
+                }
+            }
+        }
+
+        bool enemiesChanged = currentEnemyStateHash != lastEnemyStateHash;
+        lastEnemyStateHash = currentEnemyStateHash;
+
+        bool gridMovedThisFrame = false;
+        Vector2Int currentPlayerPosition;
+
+        if (playerMover != null) {
+
+            currentPlayerPosition = playerMover.getCurrentGridPos();
+
+        }
+
+        else {
+
+            currentPlayerPosition = Vector2Int.zero;
+
+        }
+
+        bool centerChanged = gridManager.gridCenter != lastGridCenter;
+        bool playerMoved = currentPlayerPosition != lastPlayerGridPosition;
+
+        if (centerChanged == true || playerMoved == true || enemiesChanged == true) {
+
+            lastGridCenter = gridManager.gridCenter;
+            lastPlayerGridPosition = currentPlayerPosition;
+
+            updateVirtualPerceptionCache();
+            gridMovedThisFrame = true;
+
+        }
+
+        newPerceptionCells.UnionWith(cachedVirtualPerception);
+
+        bool enemyLostPerceptionThisFrame = false;
+        Vector2Int animationCenter = Vector2Int.zero;
+        int lostCount = 0;
+        bool instantClear = false;
+
+        foreach (var oldEnemy in perceivingEnemies) {
+
+            if (oldEnemy == null || oldEnemy.currentState != EnemyBase.states.Patrolling || oldEnemy.enteredCombat == true || oldEnemy.playerDetected == true) {
+
+                enemyLostPerceptionThisFrame = true;
+
+                if (oldEnemy != null) {
+
+                    animationCenter = animationCenter + gridManager.worldToGridPosition(oldEnemy.transform.position);
+                    lostCount = lostCount + 1;
+
+                }
+            }
+        }
+
+        if (lostCount > 1) {
+
+            animationCenter = new Vector2Int(animationCenter.x / lostCount, animationCenter.y / lostCount);
+
+        }
+
+        perceivingEnemies = currentPerceivingEnemies;
+
+        int currentAttackHash = getAttacksHash();
+        bool attacksChanged = currentAttackHash != lastAttackHash;
+        lastAttackHash = currentAttackHash;
+
+        if (gridMovedThisFrame == false && forcePerceptionRepaint == false && currentPerceptionCells.SetEquals(newPerceptionCells) == true && attacksChanged == false) {
+
+            return;
+
+        }
+
+        forcePerceptionRepaint = false;
+
+        HashSet<Vector2Int> cellsToClear = new HashSet<Vector2Int>(currentPerceptionCells);
+        cellsToClear.ExceptWith(newPerceptionCells);
+        currentPerceptionCells = newPerceptionCells;
+
+        if (enemyLostPerceptionThisFrame == true && cellsToClear.Count > 0) {
+
+            if (instantClear == true) {
+
+                clearCells(cellsToClear);
+
+            }
+
+            else {
+
+                Vector2Int temporaryCenter = animationCenter;
+                HashSet<Vector2Int> snapshotNewCells = new HashSet<Vector2Int>(newPerceptionCells);
+
+                cellsBeingAnimatedOut.UnionWith(cellsToClear);
+
+                startAreaAnimation(cellsToClear, () => temporaryCenter, false, () => { cellsBeingAnimatedOut.ExceptWith(cellsToClear); }, null, () => perceptionAreaColor, null, 1f, perceptionMaterialName);
+            }
+        }
+
+        else if (cellsToClear.Count > 0) {
+
+            clearCells(cellsToClear);
+
+        }
+
+        if (currentPerceptionCells.Count > 0) {
+
+            updatePerceptionInstant(currentPerceptionCells);
+
+        }
+    }
+
+    private int getEnemyPerceptionRange(TileType enemyType) {
+
+        bool hasCache = enemyPerceptionCache.TryGetValue(enemyType, out int rangeCache);
+
+        if (hasCache == true) {
+
+            return rangeCache;
+
+        }
+
+        if (enemyType.prefab != null) {
+
+            EnemyBase enemyScript = enemyType.prefab.GetComponentInChildren<EnemyBase>(true);
+
+            if (enemyScript != null) {
+
+                enemyPerceptionCache[enemyType] = enemyScript.perceptionRange;
+                return enemyScript.perceptionRange;
+
+            }
+        }
+
+        enemyPerceptionCache[enemyType] = 0;
+        return 0;
+
+    }
+
+    public void updateVirtualPerceptionCache() {
+
+        cachedVirtualPerception.Clear();
+
+        if (gridManager == null) {
+
+            return;
+
+        }
+
+        int halfWidth = gridManager.visibleWidth / 2;
+        int halfHeight = gridManager.visibleHeight / 2;
+
+        Vector2Int centerPosition = gridManager.gridCenter;
+        int safeRange = Mathf.Max(maxPerceptionRange, 6);
+
+        if (biomeGenerator != null) {
+
+            biomeGenerator.clearDistantPredictionCache(centerPosition, halfWidth + safeRange + 2);
+
+        }
+
+        for (int positionX = -halfWidth - safeRange; positionX <= halfWidth + safeRange; positionX = positionX + 1) {
+
+            for (int positionY = -halfHeight - safeRange; positionY <= halfHeight + safeRange; positionY = positionY + 1) {
+
+                Vector2Int targetPosition = centerPosition + new Vector2Int(positionX, positionY);
+
+                bool isOutOfBounds = Mathf.Abs(targetPosition.x - centerPosition.x) > halfWidth || Mathf.Abs(targetPosition.y - centerPosition.y) > halfHeight;
+
+                if (isOutOfBounds == false) {
+
+                    bool cellExists = gridManager.getCells().TryGetValue(targetPosition, out Cell targetCell) && targetCell.visual != null;
+
+                    if (cellExists == true) {
+
+                        continue;
+
+                    }
+                }
+
+                TileType virtualEnemyType = gridManager.getPredictedEnemyAt(targetPosition);
+
+                if (virtualEnemyType != null) {
+
+                    int perceptionRange = getEnemyPerceptionRange(virtualEnemyType);
+
+                    for (int perceptionX = -perceptionRange; perceptionX <= perceptionRange; perceptionX = perceptionX + 1) {
+
+                        for (int perceptionY = -perceptionRange; perceptionY <= perceptionRange; perceptionY = perceptionY + 1) {
+
+                            cachedVirtualPerception.Add(targetPosition + new Vector2Int(perceptionX, perceptionY));
+
+                        }
+                    }
+                }
+            }
+        }
+
+        forcePerceptionRepaint = true;
+
+    }
+
+    public void updatePerceptionInstant(HashSet<Vector2Int> perceptionPositions) {
+
+        foreach (Vector2Int position in perceptionPositions) {
+
+            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+
+            if (cellExists == true) {
+
+                setAreaCell(targetCell, perceptionPositions, 1f, 1f, perceptionAreaColor, null, true, perceptionMaterialName);
+
+            }
+        }
+    }
+
+    public void invalidateEnemyPerceptionCache() {
+
+        enemyPerceptionCache.Clear();
+
+    }
+
+    public bool isCellFreeOfAttacks(Vector2Int cellPosition) {
+
+        foreach (var attackSystem in AttackSystem.allSystems) {
+
+            foreach (var currentCast in attackSystem.casts.Values) {
+
+                if (currentCast.cells.Contains(cellPosition) == true) {
+
+                    return false;
+
+                }
+            }
+        }
+
+        return true;
+
+    }
+
+    private void applyMaterialProperties(Cell targetCell, string materialName, System.Action<MaterialPropertyBlock> applyChanges) {
+
+        if (targetCell.visual == null) {
+
+            return;
+
+        }
+
+        Renderer meshRenderer = targetCell.visual.GetComponent<Renderer>();
+
+        if (meshRenderer == null) {
+
+            return;
+
+        }
+
+        var materials = meshRenderer.sharedMaterials;
+        int targetIndex = -1;
+
+        for (int i = 0; i < materials.Length; i = i + 1) {
+
+            if (materials[i] != null && materials[i].name.Contains(materialName) == true) {
+
+                targetIndex = i;
+                break;
+
+            }
+        }
+
+        if (targetIndex == -1) {
+
+            return;
+
+        }
+
+        MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+        meshRenderer.GetPropertyBlock(propertyBlock, targetIndex);
+        
+        applyChanges(propertyBlock);
+        
+        meshRenderer.SetPropertyBlock(propertyBlock, targetIndex);
+
+    }
+
+    private int getAttacksHash() {
+
+        int combinedHash = 0;
+
+        foreach (var attackSystem in AttackSystem.allSystems) {
+
+            foreach (var currentCast in attackSystem.casts.Values) {
+
+                combinedHash = combinedHash ^ currentCast.cells.Count;
+
+                foreach (var castCell in currentCast.cells) {
+
+                    combinedHash = combinedHash ^ castCell.GetHashCode();
+
+                }
+            }
+        }
+
+        return combinedHash;
+
+    }
+
+    private Cell getCellFromHit(RaycastHit raycastHit) {
+
+        int instanceId = raycastHit.collider.GetInstanceID();
+        bool cellFound = gridManager.colliderToCellMap.TryGetValue(instanceId, out Cell targetCell);
+
+        if (cellFound == true) {
+
+            return targetCell;
+
+        }
+
+        return null;
+
+    }
+
+    public void clearHighlightOnClick() {
+
+        resetHighlight();
+
+    }
+
+    private void reloadPath() {
+
+        bool needsRefresh = false;
+
+        if (PlayerManager.Instance.cellsPerTurn != lastCellsPerTurn) {
+
+            lastCellsPerTurn = PlayerManager.Instance.cellsPerTurn;
+            needsRefresh = true;
+
+        }
+
+        if (playerMover != null) {
+
+            Vector2Int currentPosition = playerMover.getCurrentGridPos();
+
+            if (currentPosition != lastPlayerGridPosition) {
+
+                lastPlayerGridPosition = currentPosition;
+                needsRefresh = true;
+
+            }
+        }
+
+        if (needsRefresh == true && lastHoveredCell != null) {
+
+            resetHighlight();
+
+        }
+    }
+
+    public void refreshHoverAndPath() {
+
+        if (interactionsEnabled == false) {
+
+            return;
+
+        }
+
+        resetHighlight();
+
+    }
+}
