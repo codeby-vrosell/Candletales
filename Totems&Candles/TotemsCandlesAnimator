@@ -1,0 +1,279 @@
+// ============================================================
+// Readme of TotemsCandlesAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the procedural animations for the boss invocation Totems and their associated sacred candles.
+It handles the dramatic sequence of these entities falling into the grid, applying camera shakes for physical impact, and smoothly interpolates light intensities when candles are toggled.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Queries the TotemsCandlesManager to establish an ordered sequence of elements.
+- Animates totems and candles falling from a designated height using a calculated power curve for impact.
+- Triggers global camera shakes upon the physical landing of the invocation objects.
+- Parents the candles to their respective totems dynamically after they land.
+- Manages isolated coroutines for smoothly fading light intensities on and off.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+
+public class TotemsCandlesAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool isAnimating = false;
+
+    // ============================================================
+    // Animation Settings
+    // ============================================================
+
+    [Header("Animation Settings")]
+    public float fallHeight;
+    public float fallDuration;
+    public float fallDelay;
+    public float fallStrength;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private Dictionary<Light, Coroutine> lightFadeCoroutines = new Dictionary<Light, Coroutine>();
+    private TotemsCandlesManager totemsCandlesManagerScript;
+
+    private void Start() {
+
+        totemsCandlesManagerScript = FindFirstObjectByType<TotemsCandlesManager>();
+
+    }
+
+    // ============================================================
+    // Spawning Sequence
+    // ============================================================
+
+    public void playSpawnTotemsCandlesAnimation() {
+
+        if (isAnimating == true || totemsCandlesManagerScript == null) {
+
+            return;
+
+        }
+
+        StartCoroutine(spawnTotemsCandlesAnimation());
+
+    }
+
+    private IEnumerator spawnTotemsCandlesAnimation() {
+
+        isAnimating = true;
+
+        List<GameObject> orderedObjects = new List<GameObject>();
+
+        // Method 1
+        orderedObjects.Add(getActiveTotemAtPosition(totemsCandlesManagerScript.totemBackLeft.position));
+        orderedObjects.Add(getActiveTotemAtPosition(totemsCandlesManagerScript.totemBackRight.position));
+        orderedObjects.Add(getActiveTotemAtPosition(totemsCandlesManagerScript.totemFrontLeft.position));
+        orderedObjects.Add(getActiveTotemAtPosition(totemsCandlesManagerScript.totemFrontRight.position));
+
+        orderedObjects.Add(getActiveCandleAtPosition(totemsCandlesManagerScript.candleBackLeft.position));
+        orderedObjects.Add(getActiveCandleAtPosition(totemsCandlesManagerScript.candleBackRight.position));
+        orderedObjects.Add(getActiveCandleAtPosition(totemsCandlesManagerScript.candleFrontLeft.position));
+        orderedObjects.Add(getActiveCandleAtPosition(totemsCandlesManagerScript.candleFrontRight.position));
+
+        // Animate in sequence
+        yield return StartCoroutine(animateTotemsCandles(orderedObjects));
+
+        isAnimating = false;
+
+    }
+
+    private GameObject getActiveTotemAtPosition(Vector3 position) {
+
+        return findClosest(totemsCandlesManagerScript.activeTotems, position);
+
+    }
+
+    private GameObject getActiveCandleAtPosition(Vector3 position) {
+
+        return findClosest(totemsCandlesManagerScript.activeCandles, position);
+
+    }
+
+    private GameObject findClosest(List<GameObject> searchList, Vector3 targetPosition) {
+
+        GameObject closestObject = null;
+        float minimumDistance = float.MaxValue;
+
+        foreach (GameObject targetObject in searchList) {
+
+            if (targetObject == null) {
+
+                continue;
+
+            }
+
+            float distance = Vector3.Distance(targetObject.transform.position, targetPosition);
+
+            if (distance < minimumDistance) {
+
+                minimumDistance = distance;
+                closestObject = targetObject;
+
+            }
+        }
+
+        return closestObject;
+
+    }
+
+    // ============================================================
+    // Procedural Fall Animations
+    // ============================================================
+
+    private IEnumerator animateTotemsCandles(List<GameObject> objectsList) {
+
+        List<Coroutine> runningAnimations = new List<Coroutine>();
+
+        for (int index = 0; index < objectsList.Count; index = index + 1) {
+
+            GameObject targetObject = objectsList[index];
+
+            if (targetObject == null) {
+
+                continue;
+
+            }
+
+            targetObject.SetActive(true);
+
+            Vector3 targetPosition = targetObject.transform.position;
+            targetObject.transform.position = targetPosition + (Vector3.up * fallHeight);
+
+            bool isTotem = index < 4;
+            Transform parentTotem = null;
+
+            bool isCandleAndHasValidParent = isTotem == false && (index - 4) >= 0 && (index - 4) < objectsList.Count && objectsList[index - 4] != null;
+
+            if (isCandleAndHasValidParent == true) {
+
+                parentTotem = objectsList[index - 4].transform;
+
+            }
+
+            Coroutine animationCoroutine = StartCoroutine(fallTotemsCandles(targetObject, targetPosition, isTotem, parentTotem));
+            runningAnimations.Add(animationCoroutine);
+
+            yield return new WaitForSeconds(fallDelay);
+
+        }
+
+        foreach (Coroutine animationCoroutine in runningAnimations) {
+
+            yield return animationCoroutine;
+
+        }
+    }
+
+    private IEnumerator fallTotemsCandles(GameObject targetObject, Vector3 targetPosition, bool isTotem, Transform parentTotem = null) {
+
+        Vector3 startPosition = targetObject.transform.position;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < fallDuration) {
+
+            float timeFraction = elapsedTime / fallDuration;
+            timeFraction = Mathf.Pow(timeFraction, fallStrength);
+
+            targetObject.transform.position = Vector3.Lerp(startPosition, targetPosition, timeFraction);
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        targetObject.transform.position = targetPosition;
+
+        if (isTotem == false && parentTotem != null) {
+
+            targetObject.transform.SetParent(parentTotem, true);
+
+        }
+
+        if (CameraShake.Instance != null) {
+
+            CameraShake.Instance.shakeCamera(2f, 2.0f, 0.1f);
+
+        }
+    }
+
+    // ============================================================
+    // Light Fading 
+    // ============================================================
+
+    public void animateLightFade(Light targetLight, bool turnOn, float maximumIntensity, float duration) {
+
+        if (targetLight == null) {
+
+            return;
+
+        }
+
+        bool isCoroutineRunning = lightFadeCoroutines.ContainsKey(targetLight) && lightFadeCoroutines[targetLight] != null;
+
+        if (isCoroutineRunning == true) {
+
+            StopCoroutine(lightFadeCoroutines[targetLight]);
+
+        }
+
+        lightFadeCoroutines[targetLight] = StartCoroutine(fadeLightCoroutine(targetLight, turnOn, maximumIntensity, duration));
+
+    }
+
+    private IEnumerator fadeLightCoroutine(Light targetLight, bool turnOn, float maximumIntensity, float duration) {
+
+        float maximumIntensityInCandelas = maximumIntensity / (4f * Mathf.PI);
+        float startIntensity = targetLight.intensity;
+        float targetIntensity;
+
+        if (turnOn == true) {
+
+            targetIntensity = maximumIntensityInCandelas;
+
+        }
+
+        else {
+
+            targetIntensity = 0f;
+
+        }
+
+        float elapsedTime = 0f;
+
+        while (elapsedTime < duration) {
+
+            float timeFraction = elapsedTime / duration;
+            targetLight.intensity = Mathf.Lerp(startIntensity, targetIntensity, timeFraction);
+            
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        targetLight.intensity = targetIntensity;
+
+    }
+}
