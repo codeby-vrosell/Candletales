@@ -1,0 +1,217 @@
+// ============================================================
+// Readme of GridDynamicBorders
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the dynamic visual borders of the modular grid. 
+It evaluates the neighboring cells for each tile and updates shader properties using MaterialPropertyBlocks to correctly render the edges of the infinite playable board.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Scans the scene for all grid objects within a specified layer mask.
+- Maps the grid objects into a dictionary based on their 2D integer coordinates.
+- Checks for the presence of straight and diagonal neighbors for each tile.
+- Updates material shader properties efficiently using a MaterialPropertyBlock.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections.Generic;
+
+public class GridDynamicBorders : MonoBehaviour {
+
+    // ============================================================
+    // Settings
+    // ============================================================
+
+    [Header("Settings")]
+    public LayerMask gridLayers;
+
+    // ============================================================
+    // Straight References
+    // ============================================================
+
+    private int hideTopId;
+    private int hideBottomId;
+    private int hideLeftId;
+    private int hideRightId;
+
+    // ============================================================
+    // Diagonal References
+    // ============================================================
+
+    private int hideTopLeftId;
+    private int hideTopRightId;
+    private int hideBottomLeftId;
+    private int hideBottomRightId;
+
+    void Start() {
+
+        hideTopId = Shader.PropertyToID("_HideTop");
+        hideBottomId = Shader.PropertyToID("_HideBottom");
+        hideLeftId = Shader.PropertyToID("_HideLeft");
+        hideRightId = Shader.PropertyToID("_HideRight");
+
+        hideTopLeftId = Shader.PropertyToID("_HideTL");
+        hideTopRightId = Shader.PropertyToID("_HideTR");
+        hideBottomLeftId = Shader.PropertyToID("_HideBL");
+        hideBottomRightId = Shader.PropertyToID("_HideBR");
+
+    }
+
+    public void calculateBorders() {
+
+        Dictionary<Vector2Int, GameObject> gridDictionary = new Dictionary<Vector2Int, GameObject>();
+
+        GameObject[] allObjects = FindObjectsByType<GameObject>(FindObjectsSortMode.None);
+
+        foreach (GameObject gridObject in allObjects) {
+
+            if ((gridLayers.value & (1 << gridObject.layer)) != 0) {
+
+                int positionX = Mathf.RoundToInt(gridObject.transform.position.x);
+                int positionZ = Mathf.RoundToInt(gridObject.transform.position.z);
+
+                Vector2Int position = new Vector2Int(positionX, positionZ);
+                bool hasKey = gridDictionary.ContainsKey(position);
+
+                if (hasKey == false) {
+
+                    gridDictionary.Add(position, gridObject);
+
+                }
+            }
+        }
+
+        MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+
+        foreach (var keyValuePair in gridDictionary) {
+
+            Vector2Int position = keyValuePair.Key;
+            GameObject cube = keyValuePair.Value;
+
+            bool hasTopNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(0, 1));
+            bool hasBottomNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(0, -1));
+            bool hasRightNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(1, 0));
+            bool hasLeftNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(-1, 0));
+
+            bool hasTopRightNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(1, 1));
+            bool hasTopLeftNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(-1, 1));
+            bool hasBottomRightNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(1, -1));
+            bool hasBottomLeftNeighbor = gridDictionary.ContainsKey(position + new Vector2Int(-1, -1));
+
+            Renderer meshRenderer = cube.GetComponent<Renderer>();
+            meshRenderer.GetPropertyBlock(propertyBlock);
+
+            // Straight Borders
+
+            if (hasTopNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideTopId, 1f); 
+            
+            } 
+
+            else {
+                
+                propertyBlock.SetFloat(hideTopId, 0f);
+            
+            }
+
+            if (hasBottomNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideBottomId, 1f);
+            
+            } 
+
+            else {
+                
+                propertyBlock.SetFloat(hideBottomId, 0f);
+            
+            }
+
+            if (hasRightNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideRightId, 1f);
+            
+            } 
+
+            else {
+                
+                propertyBlock.SetFloat(hideRightId, 0f);
+            
+            }
+
+            if (hasLeftNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideLeftId, 1f);
+            
+            } 
+
+            else {
+                
+                propertyBlock.SetFloat(hideLeftId, 0f);
+            
+            }
+
+            // Diagonal Borders
+
+            if (hasTopRightNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideTopRightId, 1f);
+            
+            }
+
+            else {
+                
+                propertyBlock.SetFloat(hideTopRightId, 0f);
+            
+            }
+
+            if (hasTopLeftNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideTopLeftId, 1f);
+            
+            }
+
+            else {
+                
+                propertyBlock.SetFloat(hideTopLeftId, 0f);
+            
+            }
+
+            if (hasBottomRightNeighbor == true) { 
+                
+                propertyBlock.SetFloat(hideBottomRightId, 1f);
+            
+            }
+
+            else {
+                
+                propertyBlock.SetFloat(hideBottomRightId, 0f);
+            
+            }
+
+            if (hasBottomLeftNeighbor == true) {
+                
+                propertyBlock.SetFloat(hideBottomLeftId, 1f);
+            
+            }
+
+            else {
+                
+                propertyBlock.SetFloat(hideBottomLeftId, 0f);
+            
+            }
+
+            meshRenderer.SetPropertyBlock(propertyBlock);
+
+        }
+    }
+}
