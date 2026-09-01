@@ -1,0 +1,218 @@
+// ============================================================
+// Readme of EntityFaller
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the falling sequence of heavy grid entities, such as biome bosses or sacred candles, making them drop onto the board from the sky.
+Upon landing, it handles physical feedback through camera shake and can generate a wave effect that optionally destroys nearby obstacles or enemies.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Interpolates the entity's vertical position over a defined duration to simulate a fall.
+- Calculates the correct landing height based on the grid cell's visual offset.
+- Triggers camera shake feedback upon impact to emphasize weight.
+- Spawns a procedural grid wave that propagates outwards from the landing spot.
+- Conditionally clears grid obstacles, entities, and enemies caught within the wave.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class EntityFaller : MonoBehaviour {
+
+    // ============================================================
+    // Fall Target
+    // ============================================================
+
+    [Header("Fall Target")]
+    public Vector3 targetPosition;
+
+    // ============================================================
+    // Fall Settings
+    // ============================================================
+
+    [Header("Fall Settings")]
+    public float fallDuration;
+    public float fallStrength;
+
+    // ============================================================
+    // Wave Settings
+    // ============================================================
+
+    [Header("Wave Settings")]
+    public float customWaveDistance = 0f;
+
+    // ============================================================
+    // Destruction Settings
+    // ============================================================
+
+    [Header("Destruction Settings")]
+    public bool destroyObstaclesOnFall = false;
+
+    // ============================================================
+    // Shake Settings
+    // ============================================================
+
+    [Header("Shake Settings")]
+    public float shakeAmplitude;
+    public float shakeFrequency;
+    public float shakeDuration;
+
+    private void Awake() {
+
+        transform.position = targetPosition + Vector3.up * targetPosition.y;
+
+    }
+
+    public void fall(System.Action onComplete = null) {
+
+        StartCoroutine(fallCoroutine(onComplete));
+
+    }
+
+    private IEnumerator fallCoroutine(System.Action onComplete) {
+
+        Vector3 startPosition = transform.position;
+        Vector3 endPosition = new Vector3(targetPosition.x, 0f, targetPosition.z);
+
+        if (GridManager.Instance != null) {
+
+            Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(endPosition);
+
+            // Extract the boolean result to explicitly evaluate it without abbreviations
+            bool cellFound = GridManager.Instance.tryGetCells(gridPosition, out Cell cell);
+
+            if (cellFound == true) {
+
+                float cellBaseY;
+
+                if (cell.visual != null) {
+
+                    cellBaseY = cell.visual.transform.position.y;
+
+                }
+
+                else {
+
+                    cellBaseY = 0f;
+
+                }
+
+                endPosition.y = cellBaseY + (cell.offsetY - 1f);
+
+            }
+        }
+
+        float timer = 0f;
+
+        while (timer < fallDuration) {
+
+            float timeFraction = timer / fallDuration;
+            
+            // Apply a power curve to simulate gravity acceleration
+            timeFraction = Mathf.Pow(timeFraction, fallStrength);
+
+            transform.position = Vector3.Lerp(startPosition, endPosition, timeFraction);
+            timer = timer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        transform.position = endPosition;
+
+        CameraShake.Instance.shakeCamera(shakeAmplitude, shakeFrequency, shakeDuration);
+
+        if (EntityWaverManager.Instance != null) {
+
+            Vector2Int logicalGridPosition = GridManager.Instance.worldToGridPosition(endPosition);
+            Vector3 waveOriginLogical = new Vector3(logicalGridPosition.x, 0f, logicalGridPosition.y);
+
+            EntityWaverManager.Instance.generateWave(waveOriginLogical, null, customWaveDistance);
+
+            if (destroyObstaclesOnFall == true) {
+
+                StartCoroutine(destroyObstaclesWithWave(logicalGridPosition));
+
+            }
+
+            if (onComplete != null) {
+
+                onComplete.Invoke();
+
+            }
+        }
+
+        else {
+
+            if (onComplete != null) {
+
+                onComplete.Invoke();
+
+            }
+        }
+    }
+
+    private IEnumerator destroyObstaclesWithWave(Vector2Int centerGridPosition) {
+
+        float waveDistance;
+        
+        if (customWaveDistance > 0f) {
+
+            waveDistance = customWaveDistance;
+
+        }
+
+        else {
+
+            waveDistance = EntityWaverManager.Instance.maxDistance;
+
+        }
+
+        float speed = EntityWaverManager.Instance.propagationSpeed;
+
+        List<Vector2Int> keysCopy = new List<Vector2Int>(GridManager.Instance.getCells().Keys);
+
+        foreach (Vector2Int position in keysCopy) {
+
+            float distance = Vector2Int.Distance(position, centerGridPosition);
+
+            if (distance <= waveDistance) {
+
+                float delay = distance / speed;
+                StartCoroutine(destroyCellAfterDelay(position, delay));
+
+            }
+        }
+
+        yield return null;
+
+    }
+
+    private IEnumerator destroyCellAfterDelay(Vector2Int position, float delay) {
+
+        if (delay > 0) {
+
+            yield return new WaitForSeconds(delay);
+
+        }
+
+        if (GridStateManager.Instance != null) {
+
+            // Permanently alter the grid state to remove all obstacles and enemies on this tile
+            GridStateManager.Instance.registerObstacleDestructionAt(position);
+            GridStateManager.Instance.killEnemiesAt(position);
+            GridStateManager.Instance.registerEntityDestructionAt(position);
+
+        }
+    }
+}
