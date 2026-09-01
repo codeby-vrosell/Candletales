@@ -1,0 +1,507 @@
+// ============================================================
+// Readme of TotemsCandlesManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the physical instantiation and logical tracking of the invocation Totems and their corresponding sacred candles around the grid. 
+It controls the progression of the game by tracking how many bosses have been defeated (indicated by lit candles) to eventually allow the invocation of the final boss.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Loads Totem and Candle prefabs dynamically from the Resources folder.
+- Spawns and positions the Totems and Candles at designated transform locations with randomized rotations.
+- Links external lighting components to their respective Totem scripts for visual feedback.
+- Tracks the total count of lit candles to unlock the final boss invocation.
+- Provides methods to clear, reload, and toggle the states of specific Totems based on enemy IDs.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections.Generic;
+
+public class TotemsCandlesManager : MonoBehaviour {
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool canInvokeFinalBoss;
+    public int litCandlesCount = 0;
+
+    // ============================================================
+    // Interaction Settings
+    // ============================================================
+
+    [Header("Hold Settings")]
+    public float secondsToInvoke;
+
+    [Header("Shake Settings")]
+    public float maxShakeAmplitude;
+    public float maxShakeFrequency;
+
+    // ============================================================
+    // Prefab Routes
+    // ============================================================
+
+    private const string totemFolderPath = "TotemPresets/Forest";
+    private const string candleFrontFolderPath = "CandlePresets/Front";
+    private const string candleBackFolderPath = "CandlePresets/Back";
+
+    // ============================================================
+    // Totems Spawn Positions
+    // ============================================================
+
+    [Header("Totems Spawn Positions")]
+    public Transform totemFrontLeft;
+    public Transform totemFrontRight;
+    public Transform totemBackLeft;
+    public Transform totemBackRight;
+
+    // ============================================================
+    // Candles Spawn Positions
+    // ============================================================
+
+    [Header("Candles Spawn Positions")]
+    public Transform candleFrontLeft;
+    public Transform candleFrontRight;
+    public Transform candleBackLeft;
+    public Transform candleBackRight;
+
+    // ============================================================
+    // Lights Setup
+    // ============================================================
+
+    [Header("Lights Setup")]
+    public Light lightFrontLeft;
+    public Light lightFrontRight;
+    public Light lightBackLeft;
+    public Light lightBackRight;
+
+    [Header("Lights Settings")]
+    public float maxLightIntensity;
+    public float lightFadeDuration;
+
+    // ============================================================
+    // Totems Rotation Settings
+    // ============================================================
+
+    [Header("Totems Rotation Settings")]
+    public float totemsFrontRotation;
+    public float totemsBackRotation;
+
+    // ============================================================
+    // Internal Collections
+    // ============================================================
+
+    private List<GameObject> loadedTotems = new List<GameObject>();
+    [HideInInspector] public List<GameObject> activeTotems = new List<GameObject>();
+
+    private List<GameObject> loadedFrontCandles = new List<GameObject>();
+    private List<GameObject> loadedBackCandles = new List<GameObject>();
+    [HideInInspector] public List<GameObject> activeCandles = new List<GameObject>();
+
+    private void Start() {
+
+        resetLights();
+
+        loadTotems();
+        spawnTotems();
+
+        loadCandles();
+        spawnCandles();
+
+    }
+
+    // ============================================================
+    // Totem Spawning Logic
+    // ============================================================
+
+    private void loadTotems() {
+
+        loadedTotems.Clear();
+        Object[] totemsArray = Resources.LoadAll(totemFolderPath, typeof(GameObject));
+
+        foreach (Object loadedObject in totemsArray) {
+
+            loadedTotems.Add((GameObject)loadedObject);
+
+        }
+
+        if (loadedTotems.Count == 0) {
+
+            Debug.LogError("No totem prefabs found in path: " + totemFolderPath);
+
+        }
+    }
+
+    private void spawnTotems() {
+
+        if (loadedTotems.Count < 4) {
+
+            return;
+
+        }
+
+        List<GameObject> selectedTotems = getRandomTotems(4);
+
+        Vector3 frontLeftEulerRotation = totemFrontLeft.rotation.eulerAngles;
+        frontLeftEulerRotation.y = -totemsFrontRotation;
+
+        Vector3 frontRightEulerRotation = totemFrontRight.rotation.eulerAngles;
+        frontRightEulerRotation.y = totemsFrontRotation;
+
+        Vector3 backLeftEulerRotation = totemBackLeft.rotation.eulerAngles;
+        backLeftEulerRotation.y = -totemsBackRotation;
+
+        Vector3 backRightEulerRotation = totemBackRight.rotation.eulerAngles;
+        backRightEulerRotation.y = totemsBackRotation;
+
+        // Front Left Totem
+        GameObject totemFrontLeftInstance = Instantiate(selectedTotems[0], totemFrontLeft.position, Quaternion.Euler(frontLeftEulerRotation));
+        Totem totemScriptFrontLeft;
+        bool hasFrontLeftScript = totemFrontLeftInstance.TryGetComponent(out totemScriptFrontLeft);
+
+        if (hasFrontLeftScript == true) {
+
+            totemScriptFrontLeft.assignedLight = lightFrontLeft;
+
+        }
+
+        activeTotems.Add(totemFrontLeftInstance);
+
+        // Front Right Totem
+        GameObject totemFrontRightInstance = Instantiate(selectedTotems[1], totemFrontRight.position, Quaternion.Euler(frontRightEulerRotation));
+        Totem totemScriptFrontRight;
+        bool hasFrontRightScript = totemFrontRightInstance.TryGetComponent(out totemScriptFrontRight);
+
+        if (hasFrontRightScript == true) {
+
+            totemScriptFrontRight.assignedLight = lightFrontRight;
+
+        }
+
+        activeTotems.Add(totemFrontRightInstance);
+
+        // Back Left Totem
+        GameObject totemBackLeftInstance = Instantiate(selectedTotems[2], totemBackLeft.position, Quaternion.Euler(backLeftEulerRotation));
+        Totem totemScriptBackLeft;
+        bool hasBackLeftScript = totemBackLeftInstance.TryGetComponent(out totemScriptBackLeft);
+
+        if (hasBackLeftScript == true) {
+
+            totemScriptBackLeft.assignedLight = lightBackLeft;
+
+        }
+
+        activeTotems.Add(totemBackLeftInstance);
+
+        // Back Right Totem
+        GameObject totemBackRightInstance = Instantiate(selectedTotems[3], totemBackRight.position, Quaternion.Euler(backRightEulerRotation));
+        Totem totemScriptBackRight;
+        bool hasBackRightScript = totemBackRightInstance.TryGetComponent(out totemScriptBackRight);
+
+        if (hasBackRightScript == true) {
+
+            totemScriptBackRight.assignedLight = lightBackRight;
+
+        }
+
+        activeTotems.Add(totemBackRightInstance);
+
+        foreach (GameObject spawnedTotem in activeTotems) {
+
+            spawnedTotem.SetActive(false);
+
+        }
+    }
+
+    public GameObject[] getTotemsInOrderArray() {
+
+        if (activeTotems.Count >= 4) {
+
+            return new GameObject[] { activeTotems[2], activeTotems[3], activeTotems[0], activeTotems[1] };
+
+        }
+
+        return null;
+
+    }
+
+    private List<GameObject> getRandomTotems(int requiredAmount) {
+
+        List<GameObject> totemsCopy = new List<GameObject>(loadedTotems);
+        List<GameObject> resultList = new List<GameObject>();
+
+        for (int index = 0; index < requiredAmount; index = index + 1) {
+
+            if (totemsCopy.Count == 0) {
+
+                Debug.LogWarning("Tried to pick more totems than available.");
+                break;
+
+            }
+
+            int randomIndex = Random.Range(0, totemsCopy.Count);
+            resultList.Add(totemsCopy[randomIndex]);
+            totemsCopy.RemoveAt(randomIndex);
+
+        }
+
+        return resultList;
+
+    }
+
+    public void clearTotems() {
+
+        foreach (GameObject activeTotem in activeTotems) {
+
+            if (activeTotem != null) {
+
+                Destroy(activeTotem);
+
+            }
+        }
+
+        activeTotems.Clear();
+
+    }
+
+    // ============================================================
+    // Candles Spawning Logic
+    // ============================================================
+
+    private void loadCandles() {
+
+        loadedFrontCandles.Clear();
+        loadedBackCandles.Clear();
+
+        Object[] frontCandlesArray = Resources.LoadAll(candleFrontFolderPath, typeof(GameObject));
+        Object[] backCandlesArray = Resources.LoadAll(candleBackFolderPath, typeof(GameObject));
+
+        foreach (Object loadedObject in frontCandlesArray) {
+
+            loadedFrontCandles.Add((GameObject)loadedObject);
+
+        }
+
+        foreach (Object loadedObject in backCandlesArray) {
+
+            loadedBackCandles.Add((GameObject)loadedObject);
+
+        }
+
+        if (loadedFrontCandles.Count == 0) {
+
+            Debug.LogError("No front candle prefabs found in path: " + candleFrontFolderPath);
+
+        }
+
+        if (loadedBackCandles.Count == 0) {
+
+            Debug.LogError("No back candle prefabs found in path: " + candleBackFolderPath);
+
+        }
+    }
+
+    private void spawnCandles() {
+
+        if (loadedFrontCandles.Count < 1 || loadedBackCandles.Count < 1) {
+
+            Debug.LogError("Not enough candle prefabs to spawn. At least 1 front and 1 back required.");
+            return;
+
+        }
+
+        List<GameObject> frontCandlesSelection = getRandomPrefabs(loadedFrontCandles, 2);
+        List<GameObject> backCandlesSelection = getRandomPrefabs(loadedBackCandles, 2);
+
+        // Front candles
+        activeCandles.Add(instantiateWithRandomRotation(frontCandlesSelection[0], candleFrontLeft));
+        activeCandles.Add(instantiateWithRandomRotation(frontCandlesSelection[1], candleFrontRight));
+
+        // Back candles
+        activeCandles.Add(instantiateWithRandomRotation(backCandlesSelection[0], candleBackLeft));
+        activeCandles.Add(instantiateWithRandomRotation(backCandlesSelection[1], candleBackRight));
+
+        foreach (GameObject activeCandle in activeCandles) {
+
+            activeCandle.SetActive(false);
+
+        }
+    }
+
+    private GameObject instantiateWithRandomRotation(GameObject targetPrefab, Transform targetTransform) {
+
+        Vector3 targetPosition = targetTransform.position;
+        Quaternion targetRotation = targetTransform.rotation;
+        Vector3 eulerRotation = targetRotation.eulerAngles;
+
+        eulerRotation.y = Random.Range(0f, 360f);
+        Quaternion randomizedYRotation = Quaternion.Euler(eulerRotation);
+
+        return Instantiate(targetPrefab, targetPosition, randomizedYRotation);
+
+    }
+
+    private List<GameObject> getRandomPrefabs(List<GameObject> sourceList, int requiredAmount) {
+
+        List<GameObject> sourceCopy = new List<GameObject>(sourceList);
+        List<GameObject> resultList = new List<GameObject>();
+
+        for (int index = 0; index < requiredAmount; index = index + 1) {
+
+            if (sourceCopy.Count == 0) {
+
+                sourceCopy = new List<GameObject>(sourceList);
+
+                if (sourceCopy.Count == 0) {
+
+                    Debug.LogWarning("No prefabs available to pick from.");
+                    break;
+
+                }
+            }
+
+            int randomIndex = Random.Range(0, sourceCopy.Count);
+            resultList.Add(sourceCopy[randomIndex]);
+            sourceCopy.RemoveAt(randomIndex);
+
+        }
+
+        return resultList;
+
+    }
+
+    // ============================================================
+    // Global Management
+    // ============================================================
+
+    public void clearAll() {
+
+        foreach (GameObject activeTotem in activeTotems) {
+
+            if (activeTotem != null) {
+
+                Destroy(activeTotem);
+
+            }
+        }
+
+        foreach (GameObject activeCandle in activeCandles) {
+
+            if (activeCandle != null) {
+
+                Destroy(activeCandle);
+
+            }
+        }
+
+        activeTotems.Clear();
+        activeCandles.Clear();
+
+    }
+
+    public void toggleAllTotems() {
+
+        toggleTotemOf(EnemyID.Frog);
+        toggleTotemOf(EnemyID.Wolf);
+        toggleTotemOf(EnemyID.Wildboar);
+        toggleTotemOf(EnemyID.Turtle);
+        toggleTotemOf(EnemyID.Mole);
+
+    }
+
+    public void toggleTotemOf(EnemyID targetEnemyType) {
+
+        string targetTotemName = "Totem_" + targetEnemyType.ToString();
+
+        foreach (GameObject totemObject in activeTotems) {
+
+            if (totemObject != null) {
+
+                bool containsName = totemObject.name.Contains(targetTotemName);
+
+                if (containsName == true) {
+
+                    Totem totemScript = totemObject.GetComponent<Totem>();
+
+                    if (totemScript != null) {
+
+                        totemScript.toggleCandle();
+                        return;
+
+                    }
+                }
+            }
+        }
+    }
+
+    public void updateLitCandlesCount() {
+
+        litCandlesCount = 0;
+
+        foreach (GameObject totemObject in activeTotems) {
+
+            if (totemObject != null) {
+
+                Totem totemScript = totemObject.GetComponent<Totem>();
+
+                if (totemScript != null && totemScript.isCandleLit == true) {
+
+                    litCandlesCount = litCandlesCount + 1;
+
+                }
+            }
+        }
+
+        if (litCandlesCount >= 4) {
+
+            canInvokeFinalBoss = true;
+
+        }
+        else {
+
+            canInvokeFinalBoss = false;
+
+        }
+    }
+
+    // ============================================================
+    // Lights Management
+    // ============================================================
+
+    private void resetLights() {
+
+        if (lightFrontLeft != null) {
+
+            lightFrontLeft.intensity = 0f;
+
+        }
+
+        if (lightFrontRight != null) {
+
+            lightFrontRight.intensity = 0f;
+
+        }
+
+        if (lightBackLeft != null) {
+
+            lightBackLeft.intensity = 0f;
+
+        }
+
+        if (lightBackRight != null) {
+
+            lightBackRight.intensity = 0f;
+
+        }
+    }
+}
