@@ -1,0 +1,100 @@
+// ============================================================
+// Readme of IlustrationAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script creates a simple frame-by-frame animation effect for user interface elements.
+It cycles through an array of textures on a RawImage component at a defined time interval, bringing static illustrations to life.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Retrieves and holds a reference to the RawImage component on the same GameObject.
+- Tracks the elapsed time between frames using the game's delta time.
+- Increments the texture index and loops back to the start when the end is reached.
+- Applies the active texture frame to the RawImage to update the visual output.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.UI;
+
+public class IlustrationAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Animation Settings
+    // ============================================================
+
+    [Header("Animation Settings")]
+    public Texture[] textures;
+    public float changeInterval;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private RawImage targetRawImage;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private int currentIndex = 0;
+    private float timer = 0f;
+
+    private void Start() {
+
+        targetRawImage = GetComponent<RawImage>();
+
+        bool hasTextures = textures != null && textures.Length > 0;
+
+        if (hasTextures == true && targetRawImage != null) {
+
+            applyTexture(textures[currentIndex]);
+
+        }
+    }
+
+    private void Update() {
+
+        bool hasMissingReferences = textures == null || textures.Length < 2 || targetRawImage == null;
+
+        if (hasMissingReferences == true) {
+
+            return;
+
+        }
+
+        timer = timer + Time.deltaTime;
+
+        if (timer >= changeInterval) {
+
+            timer = 0f;
+            currentIndex = currentIndex + 1;
+
+            if (currentIndex >= textures.Length) {
+
+                currentIndex = 0;
+
+            }
+
+            applyTexture(textures[currentIndex]);
+
+        }
+    }
+
+    private void applyTexture(Texture textureParameter) {
+
+        if (targetRawImage != null && textureParameter != null) {
+
+            targetRawImage.texture = textureParameter;
+
+        }
+    }
+}
