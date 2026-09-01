@@ -1,0 +1,161 @@
+// ============================================================
+// Readme of GameFeelParticleManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the spawning of particle effects for various game feel events, such as combat impacts and chest rewards.
+It ensures effects are instantiated with proper offsets and automatically destroyed after their playback finishes to maintain a clean hierarchy and optimize memory.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Implements a singleton pattern for global access to particle spawning.
+- Instantiates different hit particles based on whether the target is the player or an enemy.
+- Spawns specific visual effects for critical hits during combat.
+- Manages chest reward visual effects with custom vertical offsets.
+- Calculates particle lifetimes dynamically to clean up instantiated prefabs automatically.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class GameFeelParticleManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static GameFeelParticleManager Instance { get; private set; }
+
+    // ============================================================
+    // Enemy Hit Particle Prefabs
+    // ============================================================
+
+    [Header("Enemy Hit Particle Prefabs")]
+    [SerializeField] private GameObject basicHitPrefab;
+    [SerializeField] private GameObject critHitPrefab;
+
+    // ============================================================
+    // Player Hit Particle Prefabs
+    // ============================================================
+
+    [Header("Player Hit Particle Prefabs")]
+    [SerializeField] private GameObject playerHitPrefab;
+
+    // ============================================================
+    // Chest Particle Prefabs
+    // ============================================================
+
+    [Header("Chest Particle Prefabs")]
+    [SerializeField] private GameObject chestRewardPrefab;
+
+    // ============================================================
+    // Offset Settings
+    // ============================================================
+
+    [Header("Hits Settings")]
+    public float hitYOffset;
+    public float playerHitYOffset;
+
+    [Header("Chest Settings")]
+    public float chestRewardYOffset;
+
+    private void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(gameObject);
+
+        }
+    }
+
+    public void spawnHitEffect(Vector3 position, Transform parentObject, bool isCrit, bool isPlayer) {
+
+        GameObject prefabToSpawn;
+        float currentYOffset;
+
+        if (isPlayer == true) {
+
+            prefabToSpawn = playerHitPrefab;
+            currentYOffset = playerHitYOffset;
+
+        }
+
+        else {
+
+            if (isCrit == true) {
+
+                prefabToSpawn = critHitPrefab;
+
+            }
+
+            else {
+
+                prefabToSpawn = basicHitPrefab;
+
+            }
+
+            currentYOffset = hitYOffset;
+
+        }
+
+        if (prefabToSpawn != null) {
+
+            Vector3 spawnPosition = position + new Vector3(0f, currentYOffset, 0f);
+            GameObject particleInstance = Instantiate(prefabToSpawn, spawnPosition, Quaternion.identity, parentObject);
+
+            ParticleSystem particleSystem = particleInstance.GetComponent<ParticleSystem>();
+
+            if (particleSystem != null) {
+
+                // Calculates the exact time to destroy the particle based on its duration and maximum lifetime
+                float totalDuration = particleSystem.main.duration + particleSystem.main.startLifetime.constantMax;
+                Destroy(particleInstance, totalDuration);
+
+            }
+
+            else {
+
+                Destroy(particleInstance, 2f);
+
+            }
+        }
+    }
+
+    public void spawnChestRewardEffect(Vector3 position, Transform parentObject) {
+
+        if (chestRewardPrefab != null) {
+
+            Vector3 spawnPosition = position + new Vector3(0f, chestRewardYOffset, 0f);
+            GameObject particleInstance = Instantiate(chestRewardPrefab, spawnPosition, Quaternion.identity, parentObject);
+
+            ParticleSystem particleSystem = particleInstance.GetComponent<ParticleSystem>();
+
+            if (particleSystem != null) {
+
+                // Calculates the exact time to destroy the particle based on its duration and maximum lifetime
+                float totalDuration = particleSystem.main.duration + particleSystem.main.startLifetime.constantMax;
+                Destroy(particleInstance, totalDuration);
+
+            }
+
+            else {
+
+                Destroy(particleInstance, 2f);
+
+            }
+        }
+    }
+}
