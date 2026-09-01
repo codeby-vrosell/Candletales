@@ -1,0 +1,341 @@
+// ============================================================
+// Readme of BonfireManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the bonfire entity on the grid. As an interactable object, the bonfire allows the player to heal by requesting a dice roll.
+It can be used during both day and night cycles, updating the game's grid state to ensure it cannot be reused once activated.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Validates if the player meets the conditions to interact with the bonfire.
+- Triggers a health-based dice roll through the DiceManager.
+- Calculates and applies healing to the player based on the dice result.
+- Manages visual effects, including fire particles and dynamic lighting.
+- Updates the GridStateManager to permanently mark the bonfire as used for the run.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections;
+using static DiceTypes;
+using System.Collections.Generic;
+
+public class BonfireManager : MonoBehaviour, IInteractable {
+
+    // ============================================================
+    // Particle Systems
+    // ============================================================
+
+    [Header("Particle Systems")]
+    public ParticleSystem fireParticles;
+
+    // ============================================================
+    // Light Settings
+    // ============================================================
+
+    [Header("Light Settings")]
+    public Light bonfireLight;
+    public float lightFadeDuration;
+    private float maxLightIntensity;
+    private float currentBaseIntensity = 0f;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private DiceManager diceManager;
+    private PlayerControllerBase playerController;
+    private LightFlicker lightFlicker;
+
+    // ============================================================
+    // Grid Data
+    // ============================================================
+
+    private Vector2Int gridPosition;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private bool isWaitingForDice = false;
+
+    void Start() {
+
+        diceManager = FindFirstObjectByType<DiceManager>();
+        playerController = FindFirstObjectByType<PlayerControllerBase>();
+
+        gridPosition = GridManager.Instance.worldToGridPosition(transform.position);
+
+        if (bonfireLight != null) {
+
+            maxLightIntensity = bonfireLight.intensity;
+            bonfireLight.intensity = 0f;
+
+            lightFlicker = bonfireLight.GetComponent<LightFlicker>();
+
+        }
+
+        checkSavedState();
+
+    }
+
+    public void interact(PlayerControllerBase player) {
+
+        interactWithBonfire();
+
+    }
+
+    public bool canInteract() {
+
+        if (diceManager.HasFloatingDice()) {
+
+            return false;
+
+        }
+
+        if (playerController.healthSystemScript.isFullHP()) {
+
+            return false;
+
+        }
+
+        if (GridStateManager.Instance.isBonfireUsedAt(gridPosition)) {
+
+            return false;
+
+        }
+
+        return true;
+
+    }
+
+    public List<Vector2Int> getFootprint() {
+
+        return new List<Vector2Int> { GridManager.Instance.worldToGridPosition(transform.position) };
+
+    }
+
+    public void interactWithBonfire() {
+
+        if (canInteract() == false) {
+
+            return;
+
+        }
+
+        StartCoroutine(processBonfireInteraction());
+
+    }
+
+    private void checkSavedState() {
+
+        bool isUsed = GridStateManager.Instance.isBonfireUsedAt(gridPosition);
+
+        if (isUsed) {
+
+            Transform entitiesName = findChild(transform, "EntitiesName");
+
+            if (entitiesName != null) {
+                
+                Destroy(entitiesName.gameObject);
+            
+            }
+
+            if (fireParticles.isPlaying == false) {
+                
+                fireParticles.Play();
+            
+            }
+
+            if (lightFlicker != null) {
+
+                lightFlicker.canFlick = true;
+                lightFlicker.fadeMultiplier = 1f;
+
+            }
+
+            else {
+
+                currentBaseIntensity = maxLightIntensity;
+                bonfireLight.intensity = currentBaseIntensity * transform.lossyScale.x;
+
+            }
+        }
+
+        else {
+
+            fireParticles.Stop();
+
+            if (lightFlicker != null) {
+
+                lightFlicker.canFlick = false;
+                lightFlicker.fadeMultiplier = 0f;
+                bonfireLight.intensity = 0f;
+
+            }
+
+            else {
+
+                currentBaseIntensity = 0f;
+                bonfireLight.intensity = 0f;
+
+            }
+        }
+    }
+
+    private IEnumerator processBonfireInteraction() {
+
+        GridStateManager.Instance.registerBonfireUsedAt(gridPosition);
+
+        Transform entitiesName = findChild(transform, "EntitiesName");
+
+        if (entitiesName != null) {
+
+            Destroy(entitiesName.gameObject);
+
+        }
+
+        playerController.canMove = false;
+        playerController.canTurn = false;
+
+        fireParticles.Play();
+
+        if (bonfireLight != null) {
+
+            StartCoroutine(fadeLightIn());
+
+        }
+
+        isWaitingForDice = true;
+
+        // Subscribe to the dice event avoiding shorthand assignment operators
+        diceManager.OnAllDiceStopped = diceManager.OnAllDiceStopped + handleBonfireDiceResult;
+
+        diceManager.nextRollIsHealing = true;
+
+        DiceRequest request = new DiceRequest(DiceCategory.Health, DiceSides.D10);
+
+        DiceManager.OnDiceRequested?.Invoke(request);
+
+        // Halts execution until the dice manager finishes rolling and processing
+        yield return new WaitUntil(() => isWaitingForDice == false);
+
+        // Unsubscribe from the event safely
+        diceManager.OnAllDiceStopped = diceManager.OnAllDiceStopped - handleBonfireDiceResult;
+
+        playerController.canMove = true;
+        playerController.canTurn = true;
+
+    }
+
+    private IEnumerator fadeLightIn() {
+
+        if (lightFlicker != null) {
+
+            lightFlicker.fadeMultiplier = 0f;
+            lightFlicker.canFlick = true;
+
+        }
+
+        float time = 0f;
+
+        while (time < lightFadeDuration) {
+
+            time = time + Time.deltaTime;
+
+            float timeFraction = Mathf.Clamp01(time / lightFadeDuration);
+
+            if (lightFlicker != null) {
+
+                lightFlicker.fadeMultiplier = timeFraction;
+
+            }
+
+            else {
+
+                currentBaseIntensity = Mathf.Lerp(0f, maxLightIntensity, timeFraction);
+                bonfireLight.intensity = currentBaseIntensity * transform.lossyScale.x;
+
+            }
+
+            yield return null;
+
+        }
+
+        if (lightFlicker != null) {
+
+            lightFlicker.fadeMultiplier = 1f;
+
+        }
+
+        else {
+
+            currentBaseIntensity = maxLightIntensity;
+            bonfireLight.intensity = currentBaseIntensity * transform.lossyScale.x;
+
+        }
+    }
+
+    private void handleBonfireDiceResult(int totalRoll) {
+
+        HealthSystem healthSystem = playerController.healthSystemScript;
+
+        if (healthSystem != null) {
+
+            // Calculates the total healing amount applying a 10% base multiplier per dice point
+            float healAmount = healthSystem.MaxHealth * (totalRoll * 10f / 100f);
+            healthSystem.heal(healAmount);
+
+        }
+
+        StartCoroutine(showHealEffect());
+
+    }
+
+    private IEnumerator showHealEffect() {
+
+        GameObject playerObject = playerController.gameObject;
+        GameObject healingVisual = playerObject.transform.GetChild(1).gameObject;
+
+        healingVisual.SetActive(true);
+
+        yield return new WaitForSeconds(1f);
+
+        healingVisual.SetActive(false);
+
+        isWaitingForDice = false;
+
+    }
+
+    private Transform findChild(Transform parent, string childName) {
+
+        foreach (Transform child in parent) {
+
+            if (child.name == childName) {
+
+                return child;
+
+            }
+
+            // Recursively search deeper into the transform hierarchy
+            Transform result = findChild(child, childName);
+
+            if (result != null) {
+
+                return result;
+
+            }
+        }
+
+        return null;
+
+    }
+}
