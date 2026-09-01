@@ -1,0 +1,155 @@
+// ============================================================
+// Readme of CameraShake
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages camera shake effects using Cinemachine's noise channels. 
+It operates as a Singleton to allow global access, adding impact and physical feedback during critical gameplay moments (like heavy attacks or dice rolls) while ensuring it does not trigger if UI panels are active.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Implements a singleton pattern for global camera shake management.
+- Controls Cinemachine's Perlin noise to simulate realistic camera shake.
+- Provides methods to start, dynamically update, and completely stop camera shake.
+- Handles a smooth fade-out effect during the last portion of the shake duration.
+- Prevents camera shake execution if a UI panel (BlurPanels) is currently visible.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections;
+using Unity.Cinemachine;
+
+public class CameraShake : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static CameraShake Instance { get; private set; }
+
+    // ============================================================
+    // Cinemachine References
+    // ============================================================
+
+    private CinemachineCamera cinemachineCamera;
+    private CinemachineBasicMultiChannelPerlin cinemachineCameraPerlin;
+
+    // ============================================================
+    // Coroutines
+    // ============================================================
+
+    private Coroutine shakeCoroutine;
+
+    void Awake() {
+
+        if (Instance != null && Instance != this) {
+
+            Destroy(gameObject);
+
+            return;
+
+        }
+
+        Instance = this;
+
+        cinemachineCamera = GetComponent<CinemachineCamera>();
+        cinemachineCameraPerlin = cinemachineCamera.GetComponentInChildren<CinemachineBasicMultiChannelPerlin>();
+
+    }
+
+    public void shakeCamera(float amplitude, float frequency, float duration) {
+
+        if (BlurPaneles.Instance != null && BlurPaneles.Instance.Visible) {
+
+            return;
+
+        }
+
+        if (shakeCoroutine != null) {
+
+            StopCoroutine(shakeCoroutine);
+
+        }
+
+        shakeCoroutine = StartCoroutine(startShake(amplitude, frequency, duration));
+
+    }
+
+    public void updateShake(float amplitude, float frequency) {
+
+        if (BlurPaneles.Instance != null && BlurPaneles.Instance.Visible) {
+
+            return;
+
+        }
+
+        if (cinemachineCameraPerlin != null) {
+
+            cinemachineCameraPerlin.AmplitudeGain = amplitude;
+            cinemachineCameraPerlin.FrequencyGain = frequency;
+
+        }
+    }
+
+    public void stopShake() {
+
+        if (shakeCoroutine != null) {
+
+            StopCoroutine(shakeCoroutine);
+
+            shakeCoroutine = null;
+
+        }
+
+        if (cinemachineCameraPerlin != null) {
+
+            cinemachineCameraPerlin.AmplitudeGain = 0f;
+            cinemachineCameraPerlin.FrequencyGain = 0f;
+
+        }
+    }
+
+    private IEnumerator startShake(float amplitude, float frequency, float duration) {
+
+        float elapsed = 0f;
+
+        // Define a threshold (80% of the total duration) to start fading out the shake effect
+        float halfDuration = duration * 0.8f;
+
+        cinemachineCameraPerlin.AmplitudeGain = amplitude;
+        cinemachineCameraPerlin.FrequencyGain = frequency;
+
+        while (elapsed < duration) {
+
+            elapsed = elapsed + Time.deltaTime;
+
+            if (elapsed > halfDuration) {
+
+                // Calculate the normalization value for the fade out phase
+                float fadeTime = (elapsed - halfDuration) / (duration - halfDuration);
+
+                float smoothAmplitude = Mathf.Lerp(amplitude, 0f, fadeTime);
+
+                cinemachineCameraPerlin.AmplitudeGain = smoothAmplitude;
+
+            }
+
+            yield return null;
+
+        }
+
+        cinemachineCameraPerlin.AmplitudeGain = 0f;
+        cinemachineCameraPerlin.FrequencyGain = 0f;
+
+        shakeCoroutine = null;
+
+    }
+}
