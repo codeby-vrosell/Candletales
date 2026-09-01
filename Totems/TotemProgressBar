@@ -1,0 +1,196 @@
+// ============================================================
+// Readme of TotemProgressBar
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the visual user interface progress bar hovering above a Totem entity.
+It continually checks the player's inventory for the required invocation items, animates the fill amount and text smoothly, and handles its own fade-out and destruction sequence once the boss invocation begins.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Queries the InventoryManager to compare the player's current item quantity against the Totem's required amount.
+- Interpolates the visual fill amount and numeric text to provide smooth, continuous feedback.
+- Listens for an external trigger to begin its removal sequence.
+- Fades out the alpha channels of all child Image and TextMeshPro components simultaneously before destroying the GameObject.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+public class TotemProgressBar : MonoBehaviour {
+
+    // ============================================================
+    // Animation Settings
+    // ============================================================
+
+    [Header("Animation Settings")]
+    public float animationDuration;
+
+    // ============================================================
+    // Fade Out Settings
+    // ============================================================
+
+    [Header("Fade Out Settings")]
+    public float fadeOutSpeed;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private Image fillImage;
+    private TMP_Text progressText;
+    private Totem targetTotem;
+
+    private float displayedAmount = 0f;
+    private float displayedFill = 0f;
+
+    private bool waitingToFade = false;
+    private bool isFadingOut = false;
+
+    private Image[] allImages;
+    private TMP_Text[] allTexts;
+
+    private void Start() {
+
+        targetTotem = GetComponentInParent<Totem>();
+
+        Transform fillTransform = transform.Find("Fill");
+
+        if (fillTransform != null) {
+
+            fillImage = fillTransform.GetComponent<Image>();
+
+        }
+
+        Transform textTransform = transform.Find("ItemsNumber");
+
+        if (textTransform != null) {
+
+            progressText = textTransform.GetComponent<TMP_Text>();
+
+        }
+
+        allImages = GetComponentsInChildren<Image>();
+        allTexts = GetComponentsInChildren<TMP_Text>();
+
+    }
+
+    private void Update() {
+
+        if (isFadingOut == true) {
+
+            performFadeOut();
+            return;
+
+        }
+
+        updateProgress();
+
+        if (waitingToFade == true && displayedFill <= 0f) {
+
+            isFadingOut = true;
+
+        }
+    }
+
+    private void updateProgress() {
+
+        int realCurrentAmount = InventoryManager.Instance.GetQuantity(targetTotem.requiredItemId);
+        int requiredAmount = targetTotem.requiredAmount;
+
+        int targetAmount = Mathf.Min(realCurrentAmount, requiredAmount);
+
+        float targetFill;
+
+        if (requiredAmount > 0) {
+
+            targetFill = (float)targetAmount / requiredAmount;
+
+        }
+
+        else {
+
+            targetFill = 0f;
+
+        }
+
+        float safeDuration = Mathf.Max(0.01f, animationDuration);
+        float numberSpeed = requiredAmount / safeDuration;
+        float fillSpeed = 1f / safeDuration;
+
+        displayedAmount = Mathf.MoveTowards(displayedAmount, targetAmount, numberSpeed * Time.deltaTime);
+        displayedFill = Mathf.MoveTowards(displayedFill, targetFill, fillSpeed * Time.deltaTime);
+
+        if (progressText != null) {
+
+            progressText.text = $"{Mathf.FloorToInt(displayedAmount)}/{requiredAmount}";
+
+        }
+
+        if (fillImage != null) {
+
+            fillImage.fillAmount = Mathf.Clamp01(displayedFill);
+
+        }
+    }
+
+    public void triggerFadeOut() {
+
+        waitingToFade = true;
+
+    }
+
+    private void performFadeOut() {
+
+        bool finishedFading = true;
+
+        foreach (Image imageComponent in allImages) {
+
+            if (imageComponent != null) {
+
+                Color currentColor = imageComponent.color;
+
+                currentColor.a = currentColor.a - (fadeOutSpeed * Time.deltaTime);
+                imageComponent.color = currentColor;
+
+                if (currentColor.a > 0f) {
+
+                    finishedFading = false;
+
+                }
+            }
+        }
+
+        foreach (TMP_Text textComponent in allTexts) {
+
+            if (textComponent != null) {
+
+                Color currentColor = textComponent.color;
+
+                currentColor.a = currentColor.a - (fadeOutSpeed * Time.deltaTime);
+                textComponent.color = currentColor;
+
+                if (currentColor.a > 0f) {
+
+                    finishedFading = false;
+
+                }
+            }
+        }
+
+        if (finishedFading == true) {
+
+            Destroy(gameObject);
+
+        }
+    }
+}
