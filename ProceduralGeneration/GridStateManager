@@ -1,0 +1,775 @@
+// ============================================================
+// Readme of GridStateManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as the global memory for the modular grid during a run. 
+It tracks the persistent states of all interactive elements on the board, ensuring that destroyed obstacles remain destroyed, defeated enemies do not respawn immediately, and entities like traders, bonfires, and chests remember their interaction states as the player explores.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores and retrieves the destruction state of grid obstacles, handling multi-tile dependencies.
+- Manages enemy positional states, tracking their original spawn points, current locations, and death turns.
+- Executes a physics-based box cast to instantly eliminate enemies within a designated area.
+- Tracks interactions and stock for dynamic entities (like traders, goblins, bonfires, and slimes).
+- Orchestrates the visual collapse and logical cleanup when an entity or obstacle is removed from the grid.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class GridStateManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static GridStateManager Instance;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private TurnCycleManager turnCycleManager;
+    private BiomeGenerator biomeGenerator;
+    private GridHighlighter gridHighlighter;
+
+    // ============================================================
+    // Obstacles State
+    // ============================================================
+
+    private HashSet<Vector2Int> destroyedObstacles = new HashSet<Vector2Int>();
+
+    // ============================================================
+    // Enemies State
+    // ============================================================
+
+    private Dictionary<Vector2Int, EnemyState> enemyStatesByOrigin = new Dictionary<Vector2Int, EnemyState>();
+    private Dictionary<Vector2Int, EnemyState> enemyStatesByCurrentPosition = new Dictionary<Vector2Int, EnemyState>();
+
+    // ============================================================
+    // Entities State
+    // ============================================================
+
+    private HashSet<Vector2Int> destroyedEntities = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> usedBonfires = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> destroyedTraders = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> usedGoblins = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> openedChests = new HashSet<Vector2Int>();
+    private HashSet<Vector2Int> destroyedSlimes = new HashSet<Vector2Int>();
+
+    private Dictionary<Vector2Int, List<MerchantCardOffer>> traderCardsStock = new Dictionary<Vector2Int, List<MerchantCardOffer>>();
+    private Dictionary<Vector2Int, int> traderRefreshTurns = new Dictionary<Vector2Int, int>();
+    private Dictionary<Vector2Int, float> traderNegotiationFactors = new Dictionary<Vector2Int, float>();
+    private Dictionary<Vector2Int, bool> traderNegotiationResults = new Dictionary<Vector2Int, bool>();
+
+    void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(gameObject);
+
+        }
+    }
+
+    void Start() {
+
+        turnCycleManager = FindFirstObjectByType<TurnCycleManager>();
+        biomeGenerator = FindFirstObjectByType<BiomeGenerator>();
+        gridHighlighter = FindFirstObjectByType<GridHighlighter>();
+
+    }
+
+    // ============================================================
+    // Cell Management
+    // ============================================================
+
+    public void setWalkableAt(Vector2Int gridPosition, bool isWalkable) {
+
+        bool hasCell = GridManager.Instance.tryGetCells(gridPosition, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            targetCell.isWalkable = isWalkable;
+            gridHighlighter.refreshHoverAndPath();
+
+        }
+    }
+
+    // ============================================================
+    // Obstacles
+    // ============================================================
+
+    public void registerObstacleDestructionAt(Vector2Int gridPosition) {
+
+        bool isAlreadyDestroyed = destroyedObstacles.Contains(gridPosition);
+
+        if (isAlreadyDestroyed == true) {
+
+            return;
+
+        }
+
+        bool destroyEntireFootprint = true;
+        TileType multiTileReference = null;
+
+        bool hasCell = GridManager.Instance.tryGetCells(gridPosition, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            if (targetCell.visual != null) {
+
+                int obstacleLayer = LayerMask.NameToLayer("Obstacle");
+                bool isTargetingObstacleLayer = false;
+
+                Transform[] allTransforms = targetCell.visual.GetComponentsInChildren<Transform>(true);
+
+                foreach (Transform childTransform in allTransforms) {
+
+                    if (childTransform.gameObject.layer == obstacleLayer) {
+
+                        isTargetingObstacleLayer = true;
+                        break;
+
+                    }
+                }
+
+                if (isTargetingObstacleLayer == false) {
+
+                    return;
+
+                }
+            }
+
+            if (targetCell.tileType != null && targetCell.tileType.isMultiTile == true) {
+
+                multiTileReference = targetCell.tileType;
+
+            }
+        }
+
+        List<Vector2Int> targetFootprint = GridManager.Instance.getObstacleFootprint(gridPosition);
+
+        if (multiTileReference == null && targetFootprint.Count > 1) {
+
+            Vector2Int anchorPosition = targetFootprint[0];
+            bool hasAnchorCell = GridManager.Instance.tryGetCells(anchorPosition, out Cell anchorCell);
+
+            if (hasAnchorCell == true) {
+
+                if (anchorCell.tileType != null && anchorCell.tileType.isMultiTile == true) {
+
+                    multiTileReference = anchorCell.tileType;
+
+                }
+            }
+        }
+
+        if (multiTileReference != null) {
+
+            destroyEntireFootprint = multiTileReference.destroyAll;
+
+        }
+
+        if (destroyEntireFootprint == true) {
+
+            foreach (Vector2Int position in targetFootprint) {
+
+                bool isFootprintPartDestroyed = destroyedObstacles.Contains(position);
+
+                if (isFootprintPartDestroyed == false) {
+
+                    StartCoroutine(obstacleDestructionCoroutine(position, true));
+
+                }
+            }
+        }
+
+        else {
+
+            bool isGridPositionDestroyed = destroyedObstacles.Contains(gridPosition);
+
+            if (isGridPositionDestroyed == false) {
+
+                StartCoroutine(obstacleDestructionCoroutine(gridPosition, false));
+
+            }
+        }
+    }
+
+    public void killEnemiesAt(Vector2Int gridPosition) {
+
+        Vector3 cellWorldPosition = new Vector3(gridPosition.x, 0f, gridPosition.y);
+        
+        if (GridManager.Instance != null) {
+
+            bool hasCell = GridManager.Instance.tryGetCells(gridPosition, out Cell targetCell);
+
+            if (hasCell == true && targetCell.visual != null) {
+
+                cellWorldPosition = targetCell.visual.transform.position;
+
+            }
+        }
+
+        // --- HEIGHT AND DEPTH ADJUSTMENT ---
+        float heightAbove = 30f; 
+        float depthBelow = 10f;  
+
+        float totalHeight = heightAbove + depthBelow;
+
+        Vector3 boxCenter = cellWorldPosition + (Vector3.up * ((heightAbove - depthBelow) / 2f));
+        Vector3 halfExtents = new Vector3(0.45f, totalHeight / 2f, 0.45f);
+
+        // --- VISUAL DEBUG ---
+        Debug.DrawRay(boxCenter - Vector3.up * (totalHeight / 2f), Vector3.up * totalHeight, Color.red, 2f);
+        Debug.DrawRay(cellWorldPosition - Vector3.right * 0.45f, Vector3.right * 0.9f, Color.magenta, 2f);
+        Debug.DrawRay(cellWorldPosition - Vector3.forward * 0.45f, Vector3.forward * 0.9f, Color.magenta, 2f);
+        // --------------------
+
+        int enemyLayerMask = 1 << LayerMask.NameToLayer("Enemy");
+
+        Collider[] hitColliders = Physics.OverlapBox(boxCenter, halfExtents, Quaternion.identity, enemyLayerMask);
+
+        foreach (Collider hitCollider in hitColliders) {
+
+            Debug.Log("Collision detected with: " + hitCollider.gameObject.name + "!");
+
+            HealthSystem enemyHealth = hitCollider.GetComponent<HealthSystem>();
+
+            if (enemyHealth != null && enemyHealth.isPlayer == false && enemyHealth.isDead == false) {
+
+                Debug.Log("Enemy confirmed and executed: " + hitCollider.gameObject.name + "!");
+                enemyHealth.instantDeath();
+
+            }
+        }
+    }
+
+    private IEnumerator obstacleDestructionCoroutine(Vector2Int gridPosition, bool destroyRoot) {
+
+        destroyedObstacles.Add(gridPosition);
+        GridManager.Instance.unreservePosition(gridPosition);
+
+        setWalkableAt(gridPosition, true);
+
+        bool hasCell = GridManager.Instance.tryGetCells(gridPosition, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            targetCell.currentStateOfCell = Cell.StateOfCell.available;
+
+            if (targetCell.visual != null) {
+
+                int obstacleLayer = LayerMask.NameToLayer("Obstacle");
+                Transform targetToDestroy = null;
+
+                Transform[] allTransforms = targetCell.visual.GetComponentsInChildren<Transform>(true);
+
+                if (destroyRoot == true) {
+
+                    foreach (Transform childTransform in allTransforms) {
+
+                        if (childTransform.gameObject.layer == obstacleLayer && childTransform.gameObject.name != "MoleRockTemporal") {
+
+                            targetToDestroy = childTransform;
+                            break;
+
+                        }
+                    }
+                }
+
+                else {
+
+                    Vector3 expectedPosition = GridManager.Instance.gridToWorldPosition(gridPosition);
+
+                    foreach (Transform childTransform in allTransforms) {
+
+                        if (childTransform.gameObject.layer == obstacleLayer && childTransform.gameObject.name != "MoleRockTemporal") {
+
+                            float distance = Vector2.Distance(new Vector2(childTransform.position.x, childTransform.position.z), new Vector2(expectedPosition.x, expectedPosition.z));
+
+                            if (distance < 0.5f) {
+
+                                targetToDestroy = childTransform;
+                                break;
+
+                            }
+                        }
+                    }
+                }
+
+                if (targetToDestroy != null) {
+
+                    targetToDestroy.SetParent(null);
+                    ObstacleFXManager.Instance.TriggerCollapseAndDestroy(targetToDestroy);
+
+                    if (targetToDestroy == targetCell.visual.transform) {
+
+                        targetCell.visual = null;
+
+                    }
+                }
+            }
+        }
+
+        GridManager.Instance.refreshCellVisualsAt(gridPosition);
+
+        if (GridHighlighter.Instance != null) {
+
+            GridHighlighter.Instance.updateVirtualPerceptionCache();
+
+        }
+
+        yield return null;
+
+    }
+
+    public bool isObstacleDestroyedAt(Vector2Int gridPosition) {
+
+        return destroyedObstacles.Contains(gridPosition);
+
+    }
+
+    // ============================================================
+    // Enemies & Entities (Movement)
+    // ============================================================
+
+    public void registerEnemyAt(Vector2Int originalPosition, Vector2Int currentPosition, TileType tileTypeData) {
+
+        bool hasEnemyState = enemyStatesByOrigin.ContainsKey(originalPosition);
+
+        if (hasEnemyState == false) {
+
+            EnemyState newEnemyState = new EnemyState(originalPosition, currentPosition, tileTypeData);
+
+            enemyStatesByOrigin[originalPosition] = newEnemyState;
+            enemyStatesByCurrentPosition[currentPosition] = newEnemyState;
+
+            setWalkableAt(currentPosition, false);
+
+        }
+    }
+
+    public void updateEnemyPositionAt(Vector2Int originalPosition, Vector2Int oldPosition, Vector2Int newPosition) {
+
+        bool hasOriginState = enemyStatesByOrigin.TryGetValue(originalPosition, out EnemyState enemyState);
+
+        if (hasOriginState == true) {
+
+            bool hasCurrentPosition = enemyStatesByCurrentPosition.ContainsKey(enemyState.currentPos);
+
+            if (hasCurrentPosition == true) {
+
+                enemyStatesByCurrentPosition.Remove(enemyState.currentPos);
+
+            }
+
+            bool hasOldPosition = enemyStatesByCurrentPosition.ContainsKey(oldPosition);
+
+            if (hasOldPosition == true) {
+
+                enemyStatesByCurrentPosition.Remove(oldPosition);
+
+            }
+
+            enemyState.currentPos = newPosition;
+
+            if (enemyState.isDead == false) {
+
+                enemyStatesByCurrentPosition[newPosition] = enemyState;
+
+            }
+        }
+    }
+
+    public void registerEnemyDeathAt(Vector2Int originalPosition) {
+
+        bool hasOriginState = enemyStatesByOrigin.TryGetValue(originalPosition, out EnemyState enemyState);
+
+        if (hasOriginState == true) {
+
+            setWalkableAt(enemyState.currentPos, true);
+
+            bool hasCurrentPosition = enemyStatesByCurrentPosition.ContainsKey(enemyState.currentPos);
+
+            if (hasCurrentPosition == true) {
+
+                enemyStatesByCurrentPosition.Remove(enemyState.currentPos);
+
+            }
+
+            enemyState.isDead = true;
+            enemyState.deathTurn = turnCycleManager.currentTurn;
+
+            if (GridHighlighter.Instance != null) {
+
+                GridHighlighter.Instance.updateVirtualPerceptionCache();
+
+            }
+        }
+    }
+
+    public EnemyState getEnemyStateAt(Vector2Int position) {
+
+        bool hasEnemyState = enemyStatesByCurrentPosition.TryGetValue(position, out EnemyState enemyState);
+
+        if (hasEnemyState == true) {
+
+            return enemyState;
+
+        }
+
+        return null;
+
+    }
+
+    public TileType getEnemySpawnAt(Vector2Int gridPosition, TileType biomeGeneratedEnemy) {
+
+        bool hasOccupantState = enemyStatesByCurrentPosition.TryGetValue(gridPosition, out EnemyState occupantState);
+
+        if (hasOccupantState == true) {
+
+            if (occupantState.isDead == false) {
+
+                return occupantState.enemyType;
+
+            }
+        }
+
+        if (biomeGeneratedEnemy != null) {
+
+            bool hasHistoryState = enemyStatesByOrigin.TryGetValue(gridPosition, out EnemyState historyState);
+
+            if (hasHistoryState == true) {
+
+                if (historyState.isDead == true) {
+
+                    int respawnTurn = historyState.deathTurn + biomeGenerator.turnsToRespawn;
+
+                    if (turnCycleManager.currentTurn >= respawnTurn) {
+
+                        historyState.isDead = false;
+                        historyState.deathTurn = -1;
+                        historyState.currentPos = gridPosition;
+
+                        enemyStatesByCurrentPosition[gridPosition] = historyState;
+
+                        return biomeGeneratedEnemy;
+
+                    }
+
+                    else {
+
+                        return null;
+
+                    }
+                }
+
+                if (historyState.currentPos != gridPosition) {
+
+                    return null;
+
+                }
+            }
+
+            bool hasExistingState = enemyStatesByOrigin.TryGetValue(gridPosition, out EnemyState existingState);
+
+            if (hasExistingState == true) {
+
+                if (existingState.isDead == false && existingState.currentPos != gridPosition) {
+
+                    return null;
+
+                }
+            }
+
+            return biomeGeneratedEnemy;
+
+        }
+
+        return null;
+
+    }
+
+    // ============================================================
+    // Entities
+    // ============================================================
+
+    public void registerEntityDestructionAt(Vector2Int gridPosition) {
+
+        bool isAlreadyDestroyed = destroyedEntities.Contains(gridPosition);
+
+        if (isAlreadyDestroyed == true) {
+
+            return;
+
+        }
+
+        bool hasCell = GridManager.Instance.tryGetCells(gridPosition, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            if (targetCell.visual != null) {
+
+                int entityLayer = LayerMask.NameToLayer("Entity");
+                Transform targetToDestroy = null;
+
+                Transform[] allTransforms = targetCell.visual.GetComponentsInChildren<Transform>(true);
+
+                foreach (Transform childTransform in allTransforms) {
+
+                    if (childTransform.gameObject.layer == entityLayer) {
+
+                        targetToDestroy = childTransform;
+                        break;
+
+                    }
+                }
+
+                if (targetToDestroy != null) {
+
+                    destroyedEntities.Add(gridPosition);
+                    targetToDestroy.SetParent(null);
+
+                    string entityName = targetToDestroy.gameObject.name;
+
+                    if (entityName.StartsWith("Entity_Slime") == true) {
+
+                        SlimeManager slimeManager = targetToDestroy.GetComponentInChildren<SlimeManager>();
+
+                        if (slimeManager != null) {
+
+                            slimeManager.handleDeath();
+
+                        }
+
+                        else {
+
+                            Destroy(targetToDestroy.gameObject);
+
+                        }
+                    }
+
+                    else if (entityName.StartsWith("Entity_Chest") == true || entityName.StartsWith("Entity_Bonfire") == true) {
+
+                        if (ObstacleFXManager.Instance != null) {
+
+                            ObstacleFXManager.Instance.TriggerCollapseAndDestroy(targetToDestroy);
+
+                        }
+
+                        else {
+
+                            Destroy(targetToDestroy.gameObject);
+
+                        }
+                    }
+
+                    else if (entityName.StartsWith("Entity_Goblin") == true || entityName.StartsWith("Entity_Trader") == true) {
+
+                       Animator entityAnimator = targetToDestroy.GetComponent<Animator>();
+                       entityAnimator.Play("death");
+
+                    }
+
+                    setWalkableAt(gridPosition, true);
+                    targetCell.currentStateOfCell = Cell.StateOfCell.available;
+
+                    GridManager.Instance.refreshCellVisualsAt(gridPosition);
+
+                    if (GridHighlighter.Instance != null) {
+
+                        GridHighlighter.Instance.updateVirtualPerceptionCache();
+
+                    }
+                }
+            }
+        }
+    }
+
+    public bool isEntityDestroyedAt(Vector2Int gridPosition) {
+
+        return destroyedEntities.Contains(gridPosition);
+
+    }
+
+    public void registerBonfireUsedAt(Vector2Int gridPosition) {
+
+        bool isBonfireUsed = usedBonfires.Contains(gridPosition);
+
+        if (isBonfireUsed == false) {
+
+            usedBonfires.Add(gridPosition);
+
+        }
+    }
+
+    public bool isBonfireUsedAt(Vector2Int gridPosition) {
+
+        return usedBonfires.Contains(gridPosition);
+
+    }
+
+    public void setTraderRefreshTurns(Vector2Int gridPosition, int refreshTurn) {
+
+        traderRefreshTurns[gridPosition] = refreshTurn;
+
+    }
+
+    public int getTraderRefreshTurns(Vector2Int gridPosition) {
+
+        bool hasTurnData = traderRefreshTurns.TryGetValue(gridPosition, out int currentTurn);
+
+        if (hasTurnData == true) {
+
+            return currentTurn;
+
+        }
+
+        return -1;
+
+    }
+
+    public bool tryGetTraderCards(Vector2Int gridPosition, out List<MerchantCardOffer> merchantOffers) {
+
+        return traderCardsStock.TryGetValue(gridPosition, out merchantOffers);
+
+    }
+
+    public void saveTraderCards(Vector2Int gridPosition, List<MerchantCardOffer> merchantOffers) {
+
+        traderCardsStock[gridPosition] = merchantOffers;
+
+    }
+
+    public void registerTraderDestructionAt(Vector2Int gridPosition) {
+
+        bool isTraderDestroyed = destroyedTraders.Contains(gridPosition);
+
+        if (isTraderDestroyed == false) {
+
+            destroyedTraders.Add(gridPosition);
+
+        }
+
+        setWalkableAt(gridPosition, true);
+
+    }
+
+    public bool isTraderDestroyedAt(Vector2Int gridPosition) {
+
+        return destroyedTraders.Contains(gridPosition);
+
+    }
+
+    public void saveNegotiation(Vector2Int gridPosition, float negotiationFactor, bool playerWins) {
+
+        traderNegotiationFactors[gridPosition] = negotiationFactor;
+        traderNegotiationResults[gridPosition] = playerWins;
+
+    }
+
+    public bool hasNegotiatedWith(Vector2Int gridPosition) {
+
+        return traderNegotiationFactors.ContainsKey(gridPosition);
+
+    }
+
+    public float getNegotiationFactor(Vector2Int gridPosition) {
+
+        bool hasFactor = traderNegotiationFactors.TryGetValue(gridPosition, out float negotiationFactor);
+
+        if (hasFactor == true) {
+
+            return negotiationFactor;
+
+        }
+
+        return 1f;
+
+    }
+
+    public bool? getNegotiationResult(Vector2Int gridPosition) {
+
+        bool hasResult = traderNegotiationResults.TryGetValue(gridPosition, out bool negotiationResult);
+
+        if (hasResult == true) {
+
+            return negotiationResult;
+
+        }
+
+        return null;
+
+    }
+
+    public void registerGoblinUsedAt(Vector2Int gridPosition) {
+
+        bool isGoblinUsed = usedGoblins.Contains(gridPosition);
+
+        if (isGoblinUsed == false) {
+
+            usedGoblins.Add(gridPosition);
+
+        }
+    }
+
+    public bool isGoblinUsedAt(Vector2Int gridPosition) {
+
+        return usedGoblins.Contains(gridPosition);
+
+    }
+
+    public void registerChestOpenedAt(Vector2Int gridPosition) {
+
+        bool isChestOpened = openedChests.Contains(gridPosition);
+
+        if (isChestOpened == false) {
+
+            openedChests.Add(gridPosition);
+
+        }
+    }
+
+    public bool isChestOpenedAt(Vector2Int gridPosition) {
+
+        return openedChests.Contains(gridPosition);
+
+    }
+
+    public void registerSlimeDestroyedAt(Vector2Int gridPosition) {
+
+        bool isSlimeDestroyed = destroyedSlimes.Contains(gridPosition);
+
+        if (isSlimeDestroyed == false) {
+
+            destroyedSlimes.Add(gridPosition);
+
+        }
+
+        setWalkableAt(gridPosition, true);
+
+    }
+
+    public bool isSlimeDestroyedAt(Vector2Int gridPosition) {
+
+        return destroyedSlimes.Contains(gridPosition);
+
+    }
+}
