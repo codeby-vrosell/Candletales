@@ -1,0 +1,46 @@
+// ============================================================
+// Readme of BossInvokerChainRotation
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script handles the continuous rotation of the chains or visual elements 
+attached to the boss invoker. It applies a steady rotation based on a 
+customizable speed vector across the defined coordinate space every frame.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Constantly rotates the GameObject based on a predefined speed vector.
+- Integrates frame-rate independent rotation using delta time.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class BossInvokerChainRotation : MonoBehaviour {
+
+    // ============================================================
+    // Rotation Settings
+    // ============================================================
+
+    [Header("Rotation Settings")]
+    public Vector3 rotationSpeed;
+
+    // ============================================================
+    // Configuration
+    // ============================================================
+
+    private Space rotationSpace = Space.Self;
+
+    void Update() {
+
+        transform.Rotate(rotationSpeed * Time.deltaTime, rotationSpace);
+
+    }
+}
