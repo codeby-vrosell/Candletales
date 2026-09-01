@@ -1,0 +1,60 @@
+// ============================================================
+// Readme of SectorKey
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a lightweight structural key used within the procedural generation system of the grid.
+It uniquely identifies a specific spatial sector for a given entity layer, enabling the deterministic caching of spawned interactive elements like traders, goblins, or bonfires.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Acts as a unique dictionary key combining a layer index with sector coordinates.
+- Implements the IEquatable interface to guarantee fast and garbage-free dictionary lookups.
+- Computes a custom hash code based on bitwise shifts to prevent cache collisions.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+
+public struct SectorKey : IEquatable<SectorKey> {
+
+    // ============================================================
+    // Key Properties
+    // ============================================================
+
+    public int layerIndex;
+    public int sectorX;
+    public int sectorY;
+
+    // ============================================================
+    // Equality & Hashing
+    // ============================================================
+
+    public bool Equals(SectorKey otherSectorKey) {
+
+        if (layerIndex == otherSectorKey.layerIndex && sectorX == otherSectorKey.sectorX && sectorY == otherSectorKey.sectorY) {
+
+            return true;
+
+        }
+
+        else {
+
+            return false;
+
+        }
+    }
+
+    public override int GetHashCode() {
+
+        return layerIndex ^ (sectorX << 8) ^ (sectorY << 16);
+
+    }
+}
