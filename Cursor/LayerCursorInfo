@@ -1,0 +1,36 @@
+// ============================================================
+// Readme of LayerCursorInfo
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable structure used by the CursorManager to map specific Unity layers (such as interactables or enemies) to their corresponding custom cursor textures and hotspots.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the layer mask to identify specific entity types on the grid.
+- Holds the custom cursor texture to display when hovering over the layer.
+- Defines the hotspot vector to adjust the cursor's interaction pivot point.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public struct LayerCursorInfo {
+
+    // ============================================================
+    // Configuration Data
+    // ============================================================
+
+    public LayerMask layerMask;
+    public Texture2D cursorTexture;
+    public Vector2 hotspot;
+
+}
