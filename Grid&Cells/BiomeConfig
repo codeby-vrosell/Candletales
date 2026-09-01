@@ -1,0 +1,536 @@
+// ============================================================
+// Readme of BiomeConfig
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines the configuration for a specific biome during procedural generation.
+It manages the probability weights and caching for ground, water, obstacles, enemies, and entities to ensure optimal performance when building the grid.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Caches and weights TileType resources for efficient random selection.
+- Provides specific tiles based on whether the cell is water or land.
+- Selects enemies and entities according to predefined global chances and spawn weights.
+- Loads biome-specific unique entities (like the merchant or goblin) and general entities (like bonfires and chests).
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+[Serializable]
+public class BiomeConfig {
+
+    // ============================================================
+    // Basic Settings
+    // ============================================================
+
+    public string name = "Biome";
+
+    // ============================================================
+    // Puddle Settings
+    // ============================================================
+
+    [Header("Puddle Settings")]
+    public bool enablePuddles = false;
+    [Range(0.1f, 1f)] public float puddleNoiseFrequency;
+    [Range(0f, 1f)] public float puddleDensityThreshold;
+    [Range(0f, 1f)] public float puddleScatterInfluence;
+
+    // ============================================================
+    // Obstacle Generation Settings
+    // ============================================================
+
+    [Header("Obstacle Generation Settings")]
+    public bool enableObstacles = true;
+    [Range(0.01f, 1f)] public float obstacleNoiseFrequency;
+    [Range(0f, 1f)] public float obstacleDensityThreshold;
+    [Range(0f, 1f)] public float obstacleScatterInfluence;
+
+    // ============================================================
+    // Enemy Settings
+    // ============================================================
+
+    [Header("Enemy Settings")]
+    public bool enableEnemies = true;
+    public TileType mainEnemy;
+    [Range(0f, 1f)] public float enemyGroupFrequency;
+
+    // ============================================================
+    // Ground Cache
+    // ============================================================
+
+    [NonSerialized] private TileType[] cachedGroundTiles;
+    [NonSerialized] private int totalGroundWeight;
+
+    // ============================================================
+    // Water Cache
+    // ============================================================
+
+    [NonSerialized] private TileType[] cachedWaterTiles;
+    [NonSerialized] private int totalWaterWeight;
+
+    // ============================================================
+    // Obstacles Cache
+    // ============================================================
+
+    [NonSerialized] private TileType[] cachedLandObstacles;
+    [NonSerialized] private int totalLandObstaclesWeight;
+
+    [NonSerialized] private TileType[] cachedWaterObstacles;
+    [NonSerialized] private int totalWaterObstaclesWeight;
+
+    // ============================================================
+    // Enemy Cache
+    // ============================================================
+
+    [NonSerialized] private TileType[] otherEnemiesCache;
+    [NonSerialized] private int totalOtherEnemiesWeight;
+
+    // ============================================================
+    // Entity Cache
+    // ============================================================
+
+    [NonSerialized] private TileType[] cachedEntityTiles;
+    [NonSerialized] private int totalEntityWeight;
+
+    [NonSerialized] private TileType[] cachedForcedTiles;
+    [NonSerialized] private int totalForcedWeight;
+
+    [NonSerialized] public TileType specificTraderTile;
+    [NonSerialized] public TileType specificGoblinTile;
+    [NonSerialized] public TileType specificBonfireTile;
+    [NonSerialized] public TileType specificChestTile;
+    [NonSerialized] public TileType specificSlimeTile;
+    [NonSerialized] public TileType specificMimicTile;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    [NonSerialized] private bool isInitialized = false;
+
+    // ============================================================
+    // Public API
+    // ============================================================
+
+    public BiomeCellData getBiomeCellData(bool isWater, bool isObstacleZone, float mainEnemyGlobalChance, TileType selectedEnemyIfAny, int seed) {
+
+        initializeIfNeeded();
+
+        BiomeCellData data = new BiomeCellData();
+
+        if (isWater == true) {
+
+            data.groundType = getRandomFromList(cachedWaterTiles, totalWaterWeight, seed);
+
+        }
+
+        else {
+
+            data.groundType = getRandomFromList(cachedGroundTiles, totalGroundWeight, seed);
+
+        }
+
+        if (isObstacleZone == true) {
+
+            if (isWater == true) {
+
+                data.obstacleType = getRandomFromList(cachedWaterObstacles, totalWaterObstaclesWeight, seed + 1);
+
+            }
+
+            else {
+
+                data.obstacleType = getRandomFromList(cachedLandObstacles, totalLandObstaclesWeight, seed + 1);
+
+            }
+
+            data.enemyType = null;
+
+        }
+
+        else if (selectedEnemyIfAny != null) {
+
+            data.enemyType = selectedEnemyIfAny;
+            data.obstacleType = null;
+
+        }
+
+        else {
+
+            data.obstacleType = null;
+            data.enemyType = null;
+
+        }
+
+        return data;
+
+    }
+
+    public TileType pickAnEnemy(float globalMainChance, int seed) {
+
+        initializeIfNeeded();
+
+        int chanceRoll = getFastRandomInt(seed, 0, 10000);
+
+        if (mainEnemy != null && chanceRoll < (globalMainChance * 10000)) {
+
+            return mainEnemy;
+
+        }
+
+        if (otherEnemiesCache != null && otherEnemiesCache.Length > 0 && totalOtherEnemiesWeight > 0) {
+
+            return getRandomFromList(otherEnemiesCache, totalOtherEnemiesWeight, seed + 100);
+
+        }
+
+        return mainEnemy;
+
+    }
+
+    public TileType pickAnEntity(int seed) {
+
+        initializeIfNeeded();
+
+        if (cachedEntityTiles == null || cachedEntityTiles.Length == 0) {
+
+            return null;
+
+        }
+
+        return getRandomFromList(cachedEntityTiles, totalEntityWeight, seed);
+
+    }
+
+    public TileType pickForcedEntity(int seed) {
+
+        initializeIfNeeded();
+
+        if (cachedForcedTiles == null || cachedForcedTiles.Length == 0) {
+
+            return null;
+
+        }
+
+        return getRandomFromList(cachedForcedTiles, totalForcedWeight, seed);
+
+    }
+
+    public TileType pickObstacleForPrediction(int seed, bool isWater) {
+
+        initializeIfNeeded();
+
+        if (isWater == true) {
+
+            if (cachedWaterObstacles == null || cachedWaterObstacles.Length == 0) {
+
+                return null;
+
+            }
+
+            return getRandomFromList(cachedWaterObstacles, totalWaterObstaclesWeight, seed);
+
+        }
+
+        else {
+
+            if (cachedLandObstacles == null || cachedLandObstacles.Length == 0) {
+
+                return null;
+
+            }
+
+            return getRandomFromList(cachedLandObstacles, totalLandObstaclesWeight, seed);
+
+        }
+    }
+
+    public void recalculateEnemyWeights() {
+
+        if (otherEnemiesCache == null) {
+
+            return;
+
+        }
+
+        totalOtherEnemiesWeight = 0;
+
+        foreach (var enemy in otherEnemiesCache) {
+
+            totalOtherEnemiesWeight = totalOtherEnemiesWeight + enemy.spawnWeight;
+
+        }
+    }
+
+    // ============================================================
+    // Internal Logic
+    // ============================================================
+
+    private void initializeIfNeeded() {
+
+        if (isInitialized == false) {
+
+            loadTiles();
+            isInitialized = true;
+
+        }
+    }
+
+    private void loadTiles() {
+
+        // 1. Load Ground
+        string groundPath = $"TileTypes/Biomes/{name}/Ground/";
+        cachedGroundTiles = loadAndCalculateWeights(groundPath, out totalGroundWeight);
+
+        // 2. Load Water
+        string waterPath = $"TileTypes/Biomes/{name}/Water/";
+        cachedWaterTiles = loadAndCalculateWeights(waterPath, out totalWaterWeight);
+
+        // 3. Load Obstacles
+        string obstaclesPath = $"TileTypes/Biomes/{name}/Obstacles/";
+        TileType[] allObstacles = Resources.LoadAll<TileType>(obstaclesPath);
+
+        List<TileType> landObstacles = new List<TileType>();
+        List<TileType> waterObstacles = new List<TileType>();
+
+        totalLandObstaclesWeight = 0;
+        totalWaterObstaclesWeight = 0;
+
+        if (allObstacles != null && allObstacles.Length > 0) {
+
+            foreach (var obstacle in allObstacles) {
+
+                if (obstacle.mustSpawnOnWater == false) {
+
+                    landObstacles.Add(obstacle);
+                    totalLandObstaclesWeight = totalLandObstaclesWeight + obstacle.spawnWeight;
+
+                }
+
+                if (obstacle.mustSpawnOnWater == true || obstacle.canSpawnOnWater == true) {
+
+                    waterObstacles.Add(obstacle);
+                    totalWaterObstaclesWeight = totalWaterObstaclesWeight + obstacle.spawnWeight;
+
+                }
+            }
+        }
+
+        cachedLandObstacles = landObstacles.ToArray();
+        cachedWaterObstacles = waterObstacles.ToArray();
+
+        // 4. Load Enemies
+        loadEnemies();
+
+        // 5. Load Entities
+        loadEntities();
+
+    }
+
+    private TileType[] loadAndCalculateWeights(string path, out int totalWeight) {
+
+        TileType[] loadedTiles = Resources.LoadAll<TileType>(path);
+        totalWeight = 0;
+
+        if (loadedTiles != null && loadedTiles.Length > 0) {
+
+            foreach (var tile in loadedTiles) {
+
+                totalWeight = totalWeight + tile.spawnWeight;
+
+            }
+
+            return loadedTiles;
+
+        }
+
+        else {
+
+            return new TileType[0];
+
+        }
+    }
+
+    private TileType getRandomFromList(TileType[] list, int totalWeight, int seed) {
+
+        if (list == null || list.Length == 0) {
+
+            return null;
+
+        }
+
+        int randomValue = getFastRandomInt(seed, 0, totalWeight);
+
+        foreach (var tile in list) {
+
+            randomValue = randomValue - tile.spawnWeight;
+
+            if (randomValue < 0) {
+
+                return tile;
+
+            }
+        }
+
+        return list[0];
+
+    }
+
+    private void loadEnemies() {
+
+        TileType[] allLoadedEnemies = Resources.LoadAll<TileType>("TileTypes/Enemies/");
+        List<TileType> otherEnemiesList = new List<TileType>();
+
+        if (allLoadedEnemies != null) {
+
+            foreach (var enemy in allLoadedEnemies) {
+
+                if ((mainEnemy == null || enemy.name != mainEnemy.name) && enemy.spawnWeight > 0) {
+
+                    otherEnemiesList.Add(enemy);
+                    totalOtherEnemiesWeight = totalOtherEnemiesWeight + enemy.spawnWeight;
+
+                }
+            }
+        }
+
+        otherEnemiesCache = otherEnemiesList.ToArray();
+
+    }
+
+    private void loadEntities() {
+
+        List<TileType> allFoundEntities = new List<TileType>();
+
+        TileType[] generalEntities = Resources.LoadAll<TileType>("TileTypes/Entities/");
+
+        if (generalEntities != null && generalEntities.Length > 0) {
+
+            allFoundEntities.AddRange(generalEntities);
+
+        }
+
+        string uniquePath = $"TileTypes/Biomes/{name}/Entities/";
+        TileType[] uniqueEntities = Resources.LoadAll<TileType>(uniquePath);
+
+        if (uniqueEntities != null && uniqueEntities.Length > 0) {
+
+            allFoundEntities.AddRange(uniqueEntities);
+
+        }
+
+        // UNIQUE ENTITIES PER BIOME
+
+        // --- TRADER ---
+        string traderPath = $"TileTypes/Biomes/{name}/Entities/TileType_Trader_{name}";
+        specificTraderTile = Resources.Load<TileType>(traderPath);
+
+        // --- GOBLIN ---
+        string goblinPath = $"TileTypes/Biomes/{name}/Entities/TileType_Goblin_{name}";
+        specificGoblinTile = Resources.Load<TileType>(goblinPath);
+
+        // --- SLIME ---
+        string slimePath = $"TileTypes/Biomes/{name}/Entities/TileType_Slime_{name}";
+        specificSlimeTile = Resources.Load<TileType>(slimePath);
+
+        // GENERAL ENTITIES
+
+        // --- BONFIRE ---
+        string bonfirePath = $"TileTypes/Entities/TileType_Bonfire";
+        specificBonfireTile = Resources.Load<TileType>(bonfirePath);
+
+        // --- CHEST ---
+        string chestPath = $"TileTypes/Entities/TileType_Chest";
+        specificChestTile = Resources.Load<TileType>(chestPath);
+
+        // --- MIMIC ---
+        string mimicPath = $"TileTypes/Entities/TileType_Mimic";
+        specificMimicTile = Resources.Load<TileType>(mimicPath);
+
+        cachedForcedTiles = allFoundEntities.ToArray();
+        totalForcedWeight = 0;
+
+        foreach (var entity in cachedForcedTiles) {
+
+            totalForcedWeight = totalForcedWeight + entity.spawnWeight;
+
+        }
+
+        List<TileType> naturalEntities = new List<TileType>(allFoundEntities);
+
+        if (specificTraderTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificTraderTile.name);
+
+        }
+
+        if (specificGoblinTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificGoblinTile.name);
+
+        }
+
+        if (specificBonfireTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificBonfireTile.name);
+
+        }
+
+        if (specificChestTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificChestTile.name);
+
+        }
+
+        if (specificSlimeTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificSlimeTile.name);
+
+        }
+
+        if (specificMimicTile != null) {
+
+            naturalEntities.RemoveAll(tile => tile.name == specificMimicTile.name);
+
+        }
+
+        cachedEntityTiles = naturalEntities.ToArray();
+        totalEntityWeight = 0;
+
+        foreach (var entity in cachedEntityTiles) {
+
+            totalEntityWeight = totalEntityWeight + entity.spawnWeight;
+
+        }
+    }
+
+    // ============================================================
+    // Math Helper 
+    // ============================================================
+
+    // Fast deterministic random integer generator based on a bitwise shift algorithm
+    private int getFastRandomInt(int seed, int minimum, int maximum) {
+
+        uint state = (uint)seed;
+
+        state = state ^ (state << 13);
+        state = state ^ (state >> 17);
+        state = state ^ (state << 5);
+
+        ulong range = (ulong)((long)maximum - (long)minimum);
+        uint randomValue = state;
+
+        return (int)(minimum + (long)(randomValue % range));
+
+    }
+}
