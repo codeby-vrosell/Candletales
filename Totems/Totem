@@ -1,0 +1,500 @@
+// ============================================================
+// Readme of Totem
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script handles the behavior and interactions for the Totem entities scattered across the grid.
+It acts as the interactive trigger for boss invocations, checking player inventory for specific required items and managing the visual feedback (fading runes and flickering candles) before starting the turn-based boss combat sequence.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Checks the inventory via the InventoryManager to validate if the player holds the required summoning items.
+- Manages a hold-to-interact input mechanic, updating the cursor progress bar and triggering camera shake.
+- Controls the crossfade animations for the visual effect materials on the totem (eyes, spirals, crosses) based on combat state.
+- Toggles the particle systems and flickering lights for the sacred candles linked to the totem.
+- Communicates with the TurnCycleManager and BossInvokerManager to initiate the boss battle.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections;
+
+public class Totem : MonoBehaviour {
+
+    // ============================================================
+    // Raycast Settings
+    // ============================================================
+
+    [Header("Raycast Settings")]
+    public LayerMask interactableLayers;
+    public float raycastDistance;
+
+    // ============================================================
+    // Boss Settings
+    // ============================================================
+
+    [Tooltip("Boss Settings")]
+    public EnemyID bossToInvoke;
+
+    // ============================================================
+    // Totem Settings
+    // ============================================================
+
+    [Header("Totem Settings")]
+    public ItemID requiredItemId;
+    public int requiredAmount;
+
+    [HideInInspector] public Light assignedLight;
+    [HideInInspector] public bool isCandleLit = false;
+
+    // ============================================================
+    // Eyes Visual Effects Settings
+    // ============================================================
+
+    [Header("Eyes VFX Settings")]
+    public Renderer eyesVisualEffects;
+    public Renderer crossVisualEffects;
+    public Renderer spiralVisualEffects;
+
+    public float eyesFadeDuration;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private float holdTimer = 0f;
+
+    private float maximumEyesOpacity;
+    private float maximumSpiralOpacity;
+    private float maximumCrossOpacity;
+
+    private string fadePropertyName = "_FadeAmount";
+
+    private bool isActivated = false;
+    private bool isInvoking = false;
+    private bool bossInvoked = false;
+    private bool isMouseOver = false;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private InventoryManager inventoryManagerScript;
+    private TotemsCandlesManager totemsCandlesManagerScript;
+    private TotemsCandlesAnimations animationsScript;
+    private BossInvokerManager bossInvokerManagerScript;
+    private CombatManager combatManagerScript;
+    private TurnCycleManager turnCycleManagerScript;
+    private TotemProgressBar progressBarScript;
+
+    private Camera mainCamera;
+
+    private void Start() {
+
+        inventoryManagerScript = FindFirstObjectByType<InventoryManager>();
+        totemsCandlesManagerScript = FindFirstObjectByType<TotemsCandlesManager>();
+        animationsScript = FindFirstObjectByType<TotemsCandlesAnimations>();
+        bossInvokerManagerScript = FindFirstObjectByType<BossInvokerManager>();
+        combatManagerScript = FindFirstObjectByType<CombatManager>();
+        turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
+        progressBarScript = GetComponentInChildren<TotemProgressBar>();
+
+        mainCamera = Camera.main;
+
+        initializeEyes();
+
+    }
+
+    private void Update() {
+
+        if (BlurPaneles.Instance != null && BlurPaneles.Instance.Visible == true) {
+
+            isMouseOver = false;
+
+            if (isInvoking == true || holdTimer > 0f) {
+
+                isInvoking = false;
+                holdTimer = 0f;
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.updateFillProgress(0f);
+                    CursorManager.Instance.setFillProgress(false, CursorManager.FillType.Totem);
+
+                }
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.updateShake(0f, 0f);
+
+                }
+            }
+
+            return;
+
+        }
+
+        checkActivationTotem();
+
+        if (bossInvoked == true) {
+
+            return;
+
+        }
+
+        checkMouseOver();
+        holdInputCount(totemsCandlesManagerScript.secondsToInvoke);
+
+    }
+
+    private void initializeEyes() {
+
+        if (eyesVisualEffects == null || spiralVisualEffects == null || crossVisualEffects == null) {
+
+            Debug.LogWarning("Faltan asignar Renderers de VFX en el Totem: " + gameObject.name);
+            return;
+
+        }
+
+        maximumEyesOpacity = eyesVisualEffects.material.GetFloat(fadePropertyName);
+        maximumSpiralOpacity = spiralVisualEffects.material.GetFloat(fadePropertyName);
+        maximumCrossOpacity = crossVisualEffects.material.GetFloat(fadePropertyName);
+
+        spiralVisualEffects.material.SetFloat(fadePropertyName, 0f);
+        crossVisualEffects.material.SetFloat(fadePropertyName, 0f);
+
+    }
+
+    private IEnumerator crossFade(Renderer fadeOutTarget, Renderer fadeInTarget, float maximumFadeInValue) {
+
+        float elapsedTime = 0f;
+
+        float startOutOpacity = fadeOutTarget.material.GetFloat(fadePropertyName);
+        float startInOpacity = fadeInTarget.material.GetFloat(fadePropertyName);
+
+        while (elapsedTime < eyesFadeDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            float timeFraction = elapsedTime / eyesFadeDuration;
+
+            fadeOutTarget.material.SetFloat(fadePropertyName, Mathf.Lerp(startOutOpacity, 0f, timeFraction));
+            fadeInTarget.material.SetFloat(fadePropertyName, Mathf.Lerp(startInOpacity, maximumFadeInValue, timeFraction));
+
+            yield return null;
+
+        }
+
+        fadeOutTarget.material.SetFloat(fadePropertyName, 0f);
+        fadeInTarget.material.SetFloat(fadePropertyName, maximumFadeInValue);
+
+    }
+
+    public void onBossDefeated() {
+
+        StartCoroutine(crossFade(spiralVisualEffects, crossVisualEffects, maximumCrossOpacity));
+
+    }
+
+    public bool hasRequiredItems() {
+
+        if (bossInvoked == true) {
+
+            return false;
+
+        }
+
+        return isActivated;
+
+    }
+
+    private void checkActivationTotem() {
+
+        if (inventoryManagerScript == null) {
+
+            isActivated = false;
+            return;
+
+        }
+
+        bool hasItemsNow = inventoryManagerScript.HasItem(requiredItemId, requiredAmount);
+
+        if (isActivated == false && hasItemsNow == true) {
+
+            Debug.Log($"Totem '{gameObject.name}' activado (tiene los ítems requeridos)");
+
+        }
+
+        isActivated = hasItemsNow;
+
+    }
+
+    private void holdInputCount(float secondsToInvoke) {
+
+        if (isActivated == false || isMouseOver == false) {
+
+            if (holdTimer > 0f) {
+
+                holdTimer = 0f;
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.updateShake(0f, 0f);
+
+                }
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.updateFillProgress(0f);
+
+                }
+            }
+
+            if (isInvoking == true) {
+
+                isInvoking = false;
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.setFillProgress(false, CursorManager.FillType.Totem);
+
+                }
+            }
+
+            return;
+
+        }
+
+        if (Input.GetMouseButton(0) == true) {
+
+            if (isInvoking == false) {
+
+                isInvoking = true;
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.setFillProgress(true, CursorManager.FillType.Totem);
+
+                }
+            }
+
+            holdTimer = Mathf.Min(holdTimer + Time.deltaTime, secondsToInvoke);
+            float progressFraction = holdTimer / secondsToInvoke;
+
+            if (CursorManager.Instance != null) {
+
+                CursorManager.Instance.updateFillProgress(progressFraction);
+
+            }
+
+            if (CameraShake.Instance != null) {
+
+                CameraShake.Instance.updateShake(totemsCandlesManagerScript.maxShakeAmplitude * progressFraction, totemsCandlesManagerScript.maxShakeFrequency * progressFraction);
+
+            }
+
+            if (holdTimer >= secondsToInvoke && inventoryManagerScript.HasItem(requiredItemId, requiredAmount) == true) {
+
+                invokeBoss();
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.updateShake(0f, 0f);
+
+                }
+            }
+        }
+
+        else {
+
+            if (isInvoking == true) {
+
+                isInvoking = false;
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.updateShake(0f, 0f);
+
+                }
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.setFillProgress(false, CursorManager.FillType.Totem);
+
+                }
+            }
+
+            if (holdTimer > 0f) {
+
+                holdTimer = 0f;
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.updateFillProgress(0f);
+
+                }
+            }
+        }
+    }
+
+    private void invokeBoss() {
+
+        if (bossInvoked == true) {
+
+            return;
+
+        }
+
+        bossInvoked = true;
+        isInvoking = false;
+        holdTimer = 0f;
+
+        if (inventoryManagerScript != null) {
+
+            inventoryManagerScript.RemoveItem(requiredItemId, requiredAmount);
+
+        }
+
+        if (progressBarScript != null) {
+
+            progressBarScript.triggerFadeOut();
+
+        }
+
+        if (CursorManager.Instance != null) {
+
+            CursorManager.Instance.setFillProgress(false, CursorManager.FillType.Totem);
+
+        }
+
+        if (combatManagerScript != null) {
+
+            combatManagerScript.isPlayerInCombat = true;
+
+        }
+
+        if (turnCycleManagerScript != null) {
+
+            turnCycleManagerScript.startBossFight();
+
+        }
+
+        if (bossInvokerManagerScript != null) {
+
+            bossInvokerManagerScript.startBossPlacement(bossToInvoke);
+
+        }
+
+        if (gameObject.activeInHierarchy == true) {
+
+            StartCoroutine(crossFade(eyesVisualEffects, spiralVisualEffects, maximumSpiralOpacity));
+
+        }
+    }
+
+    private void checkMouseOver() {
+
+        Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+        RaycastHit raycastHit;
+
+        bool isHitSuccessful = Physics.Raycast(ray, out raycastHit, raycastDistance, interactableLayers);
+
+        if (isHitSuccessful == true) {
+
+            Totem hitTotem = raycastHit.collider.GetComponentInParent<Totem>();
+
+            if (hitTotem == this) {
+
+                if (isMouseOver == false) {
+
+                    isMouseOver = true;
+
+                }
+
+                return;
+
+            }
+        }
+
+        if (isMouseOver == true) {
+
+            isMouseOver = false;
+
+        }
+    }
+
+    public void toggleCandle() {
+
+        ParticleSystem[] particleSystemsArray = GetComponentsInChildren<ParticleSystem>(true);
+        LightFlicker lightFlickerScript = null;
+
+        if (assignedLight != null) {
+
+            lightFlickerScript = assignedLight.GetComponent<LightFlicker>();
+
+        }
+
+        foreach (ParticleSystem particleSystemComponent in particleSystemsArray) {
+
+            if (particleSystemComponent.gameObject.name == "FireParticleSystemCandle") {
+
+                if (particleSystemComponent.gameObject.activeSelf == false) {
+
+                    particleSystemComponent.gameObject.SetActive(true);
+
+                }
+
+                if (particleSystemComponent.isPlaying == true) {
+
+                    particleSystemComponent.Stop();
+                    isCandleLit = false;
+
+                    if (lightFlickerScript != null) {
+
+                        lightFlickerScript.canFlick = false;
+
+                    }
+
+                    if (animationsScript != null && totemsCandlesManagerScript != null) {
+
+                        animationsScript.animateLightFade(assignedLight, false, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
+
+                    }
+                }
+
+                else {
+
+                    particleSystemComponent.Play();
+                    isCandleLit = true;
+
+                    if (lightFlickerScript != null) {
+
+                        lightFlickerScript.canFlick = true;
+
+                    }
+
+                    if (animationsScript != null && totemsCandlesManagerScript != null) {
+
+                        animationsScript.animateLightFade(assignedLight, true, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
+
+                    }
+                }
+
+                if (totemsCandlesManagerScript != null) {
+
+                    totemsCandlesManagerScript.updateLitCandlesCount();
+
+                }
+
+                return;
+
+            }
+        }
+    }
+}
