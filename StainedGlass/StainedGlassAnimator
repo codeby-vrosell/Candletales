@@ -1,0 +1,189 @@
+// ============================================================
+// Readme of StainedGlassAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the rotational transition animations for the Stained Glass element, which visually indicates the current phase of the game cycle (Day, Night, Blood Moon, or Eye).
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Retrieves the corresponding Transform for the requested cycle state.
+- Executes a smooth 180-degree rotation to swap the active stained glass panels.
+- Applies a mathematically calculated overshoot and bounce effect to give physical weight to the transition.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using UnityEngine;
+
+public class StainedGlassAnimator : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("References")]
+    public Transform day;
+    public Transform night;
+    public Transform blood;
+    public Transform eye;
+
+    // ============================================================
+    // Switch Cycle Animation Settings
+    // ============================================================
+
+    [Header("Switch Cycle Animation Settings")]
+    public float rotationDuration;
+    public float accelerationPower;
+
+    // ============================================================
+    // Switch Cycle Overshoot Settings
+    // ============================================================
+
+    [Header("Switch Cycle Overshoot Settings")]
+    public float overshootAmount;
+    public float overshootDuration;
+    public int overshootBounces;
+    public float overshootDamping;
+
+    // ============================================================
+    // Helper Methods
+    // ============================================================
+
+    private Transform getTransform(states cycleState) {
+
+        switch (cycleState) {
+
+            case states.Day:
+                return day;
+
+            case states.Night:
+                return night;
+
+            case states.Blood:
+                return blood;
+
+            case states.Eye:
+                return eye;
+
+            default:
+                return null;
+
+        }
+    }
+
+    // ============================================================
+    // Switch Cycle Animation
+    // ============================================================
+
+    public void playSwitchCycleAnimation(states fromState, states toState) {
+
+        StopAllCoroutines();
+        StartCoroutine(switchCycleAnimation(fromState, toState));
+
+    }
+
+    private IEnumerator switchCycleAnimation(states fromState, states toState) {
+
+        Transform fromTransform = getTransform(fromState);
+        Transform toTransform = getTransform(toState);
+
+        float baseRotationX = fromTransform.localEulerAngles.x;
+        float baseRotationY = fromTransform.localEulerAngles.y;
+
+        toTransform.gameObject.SetActive(true);
+        toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, -180f);
+
+        float timer = 0f;
+
+        while (timer < rotationDuration) {
+
+            float timeFraction = timer / rotationDuration;
+            float easedTimeFraction = Mathf.Pow(timeFraction, accelerationPower);
+
+            float fromRotationZ = Mathf.Lerp(0f, -180f, easedTimeFraction);
+            float toRotationZ = Mathf.Lerp(-180f, -360f, easedTimeFraction);
+
+            fromTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, fromRotationZ);
+            toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, toRotationZ);
+
+            timer = timer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        fromTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, 180f);
+        toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, 0f);
+
+        int totalBounces = overshootBounces;
+
+        for (int index = 0; index < totalBounces; index = index + 1) {
+
+            float bounceFraction = (float)(totalBounces - index) / totalBounces;
+            float currentOvershoot = overshootAmount * bounceFraction;
+            int direction;
+
+            bool isEven = (index % 2) == 0;
+
+            if (isEven == true) {
+
+                direction = -1;
+
+            }
+
+            else {
+
+                direction = 1;
+
+            }
+
+            float startAngle = 0f;
+            float endAngle = direction * currentOvershoot;
+            float bounceTimer = 0f;
+
+            while (bounceTimer < overshootDuration) {
+
+                float timeFraction = bounceTimer / overshootDuration;
+                float smoothTimeFraction = Mathf.SmoothStep(0f, 1f, timeFraction);
+                float angle = Mathf.Lerp(startAngle, endAngle, smoothTimeFraction);
+
+                fromTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, angle - 180f);
+                toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, angle);
+
+                bounceTimer = bounceTimer + Time.deltaTime;
+
+                yield return null;
+
+            }
+
+            bounceTimer = 0f;
+
+            while (bounceTimer < overshootDuration) {
+
+                float timeFraction = bounceTimer / overshootDuration;
+                float smoothTimeFraction = Mathf.SmoothStep(0f, 1f, timeFraction);
+                float angle = Mathf.Lerp(endAngle, 0f, smoothTimeFraction);
+
+                fromTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, angle - 180f);
+                toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, angle);
+
+                bounceTimer = bounceTimer + Time.deltaTime;
+
+                yield return null;
+
+            }
+        }
+
+        fromTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, 180f);
+        toTransform.localRotation = Quaternion.Euler(baseRotationX, baseRotationY, 0f);
+
+    }
+}
