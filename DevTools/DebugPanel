@@ -1,0 +1,214 @@
+// ============================================================
+// Readme of DebugPanel
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages a developer debugging overlay that provides real-time statistics such as frames per second, the current world generation seed, the player's grid position, and the active biome.
+It also includes shortcuts to quickly reload the run, grant infinite movement, or interact with the sacred candles.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Toggles the visibility of the debug UI when the designated key is held.
+- Calculates and updates the current frames per second (FPS).
+- Fetches and displays data from the BiomeGenerator and GridManager.
+- Handles a "hold-to-reload" mechanic with a visual progress indicator.
+- Listens for specific key presses to trigger developer cheats (e.g., infinite cells).
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+using UnityEngine.SceneManagement;
+
+public class DebugPanel : MonoBehaviour {
+
+    // ============================================================
+    // UI References
+    // ============================================================
+
+    [Header("UI References")]
+    public GameObject debugPanel;
+    public TextMeshProUGUI seedText;
+    public TextMeshProUGUI gridPositionText;
+    public TextMeshProUGUI biomeText;
+    public TextMeshProUGUI fpsText;
+    public Image reloadProgressImage;
+
+    // ============================================================
+    // Debug Settings
+    // ============================================================
+
+    [Header("Settings")]
+    public float pollingTime;
+    public float timeToHoldR;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private float time;
+    private float rHoldTimer = 0f;
+    private int frameCount;
+
+    private BiomeGenerator biomeGenerator;
+    private TotemsCandlesManager totemsCandlesManager;
+    private Transform playerTransform;
+
+    void Start() {
+
+        if (GridManager.Instance != null) {
+
+            biomeGenerator = GridManager.Instance.GetComponent<BiomeGenerator>();
+
+        }
+
+        totemsCandlesManager = FindFirstObjectByType<TotemsCandlesManager>();
+
+    }
+
+    void Update() {
+
+        bool isTabHeld = Input.GetKey(KeyCode.Tab);
+
+        if (debugPanel != null) {
+
+            debugPanel.SetActive(isTabHeld);
+
+        }
+
+        // Handle scene reload logic ensuring no logical abbreviations are used
+        if (Input.GetKey(KeyCode.R) && isTabHeld == false) {
+
+            rHoldTimer = rHoldTimer + Time.unscaledDeltaTime;
+
+            if (reloadProgressImage != null) {
+
+                Color imageColor = reloadProgressImage.color;
+                imageColor.a = Mathf.Clamp01(rHoldTimer / timeToHoldR);
+                reloadProgressImage.color = imageColor;
+
+            }
+
+            if (rHoldTimer >= timeToHoldR) {
+
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+
+            }
+        }
+
+        else {
+
+            rHoldTimer = 0f;
+
+            if (reloadProgressImage != null) {
+
+                Color imageColor = reloadProgressImage.color;
+                imageColor.a = 0f;
+                reloadProgressImage.color = imageColor;
+
+            }
+        }
+
+        if (isTabHeld) {
+
+            if (Input.GetKeyDown(KeyCode.R)) {
+
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+
+            }
+
+            if (Input.GetKeyDown(KeyCode.C)) {
+
+                PlayerManager.Instance.cellsPerTurn = 999999;
+
+            }
+
+            if (Input.GetKeyDown(KeyCode.W)) {
+
+                totemsCandlesManager.toggleAllTotems();
+
+            }
+
+            time = time + Time.unscaledDeltaTime;
+            frameCount = frameCount + 1;
+
+            if (time >= pollingTime) {
+
+                int frameRate = Mathf.RoundToInt(frameCount / time);
+
+                if (fpsText != null) {
+
+                    fpsText.text = $"{frameRate}";
+
+                }
+
+                time = pollingTime - time;
+                frameCount = 0;
+
+            }
+
+            updateWorldData();
+
+        }
+
+        else {
+
+            time = 0;
+            frameCount = 0;
+
+        }
+    }
+
+    private void updateWorldData() {
+
+        if (biomeGenerator != null) {
+
+            seedText.text = $"{biomeGenerator.seed}";
+
+        }
+
+        else if (GridManager.Instance != null) {
+
+            // Attempt to retrieve the generator again if it was missing
+            biomeGenerator = GridManager.Instance.GetComponent<BiomeGenerator>();
+
+        }
+
+        if (playerTransform == null) {
+
+            GameObject foundPlayer = GameObject.FindWithTag("Player");
+
+            if (foundPlayer != null) {
+
+                playerTransform = foundPlayer.transform;
+
+            }
+        }
+
+        if (playerTransform != null && GridManager.Instance != null) {
+
+            Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(playerTransform.position);
+
+            gridPositionText.text = $"{gridPosition}";
+
+            if (biomeGenerator != null) {
+
+                BiomeConfig currentBiome = biomeGenerator.getBiomeConfigAt(gridPosition);
+
+                if (currentBiome != null) {
+
+                    biomeText.text = $"{currentBiome.name}";
+
+                }
+            }
+        }
+    }
+}
