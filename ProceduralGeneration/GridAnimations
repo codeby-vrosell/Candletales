@@ -1,0 +1,540 @@
+// ============================================================
+// Readme of GridAnimations
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script handles the procedural animations for the modular board's grid cells, creating dynamic visual feedback when the board is generated or recentered. 
+It orchestrates the scaling in and out of cells and smoothly translates the entire grid around the player to create the illusion of infinite exploration.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Manages the initial spawn animation, scaling grid cells based on distance from a starting point.
+- Animates the physical recentering of the grid with a smooth overshoot effect.
+- Coordinates the scaling out (destruction) and scaling in (creation) of cells during exploration.
+- Halts grid recentering if pending game feel events (like waves or chest animations) are active.
+- Updates the player's world position synchronously with the grid to keep them centered.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class GridAnimations : MonoBehaviour {
+
+    // ============================================================
+    // Status Settings
+    // ============================================================
+
+    [Header("Status")]
+    public bool stopCenter = false;
+    public bool isPendingRecenter = false;
+    public bool gridSpawnAnimationEnded = false;
+    public bool centerAnimationEnded = true;
+    public bool waitingToRecenter = false;
+
+    private bool shouldStopAfterCenter = false;
+    private int activeCellAnimations = 0;
+
+    // ============================================================
+    // Scale Cells Animation Settings
+    // ============================================================
+
+    [Header("Scale Cells Animation Settings")]
+    public float maximumScale;
+    public float minimumScale;
+    public float scaleSpeed;
+
+    // ============================================================
+    // Spawn Animation Settings
+    // ============================================================
+
+    [Header("Spawn Animation Settings")]
+    public float generationDuration;
+
+    // ============================================================
+    // Center Grid Animation Settings
+    // ============================================================
+
+    [Header("Center Grid Animation Settings")]
+    public float moveDuration;
+
+    [Header("Center Grid Overshoot Settings")]
+    public float centerMoveDuration;
+    public float overshootAmount;
+    public float overshootDuration;
+
+    // ============================================================
+    // New Cells Animation Settings
+    // ============================================================
+
+    [Header("New Cells Animation Settings")]
+    public float delayMultiplier;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private GridManager gridManager;
+    private Coroutine moveCoroutine;
+    private PlayerControllerBase playerMover;
+
+    private void Awake() {
+
+        gridManager = GetComponent<GridManager>();
+
+    }
+
+    private void Update() {
+
+        findPlayer();
+
+    }
+
+    // ============================================================
+    // General Animations
+    // ============================================================
+
+    private IEnumerator scaleCell(GameObject gameObjectReference, float delay) {
+
+        activeCellAnimations = activeCellAnimations + 1;
+
+        yield return new WaitForSeconds(delay);
+
+        if (gameObjectReference == null) {
+
+            activeCellAnimations = activeCellAnimations - 1;
+
+            yield break;
+
+        }
+
+        float timer = 0f;
+
+        while (timer < scaleSpeed) {
+
+            if (gameObjectReference == null) {
+
+                activeCellAnimations = activeCellAnimations - 1;
+
+                yield break;
+
+            }
+
+            float timeScale = Mathf.Min(timer / scaleSpeed, 1f);
+            gameObjectReference.transform.localScale = Vector3.Lerp(Vector3.one * minimumScale, Vector3.one * maximumScale, timeScale);
+
+            timer = timer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (gameObjectReference != null) {
+
+            gameObjectReference.transform.localScale = Vector3.one * maximumScale;
+
+        }
+
+        activeCellAnimations = activeCellAnimations - 1;
+
+    }
+
+    public IEnumerator unscaleCell(GameObject gameObjectReference, float delay) {
+
+        activeCellAnimations = activeCellAnimations + 1;
+
+        yield return new WaitForSeconds(delay);
+
+        if (gameObjectReference == null) {
+
+            activeCellAnimations = activeCellAnimations - 1;
+
+            yield break;
+
+        }
+
+        float timer = 0f;
+
+        while (timer < scaleSpeed) {
+
+            if (gameObjectReference == null) {
+
+                activeCellAnimations = activeCellAnimations - 1;
+
+                yield break;
+
+            }
+
+            float timeScale = Mathf.Min(timer / scaleSpeed, 1f);
+            gameObjectReference.transform.localScale = Vector3.Lerp(Vector3.one * maximumScale, Vector3.zero, timeScale);
+
+            timer = timer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (gameObjectReference != null) {
+
+            gameObjectReference.transform.localScale = Vector3.zero;
+            Destroy(gameObjectReference);
+
+        }
+
+        activeCellAnimations = activeCellAnimations - 1;
+
+    }
+
+    // ============================================================
+    // Grid Generation Animation
+    // ============================================================
+
+    public void playSpawnGridAnimation(Vector2Int startPoint) {
+
+        gridSpawnAnimationEnded = false;
+        StartCoroutine(spawnGridAnimation(startPoint));
+
+    }
+
+    private IEnumerator spawnGridAnimation(Vector2Int startPoint) {
+
+        var cellsDictionary = gridManager.getCells();
+
+        while (cellsDictionary.Count == 0) {
+
+            yield return null;
+
+        }
+
+        List<Cell> cells = new List<Cell>(cellsDictionary.Values);
+        List<(Cell cell, float distance)> cellDelays = new List<(Cell, float)>();
+
+        float maximumDistance = 0f;
+
+        foreach (var cell in cells) {
+
+            if (cell == null || cell.visual == null) {
+
+                continue;
+
+            }
+
+            float distance = Vector2Int.Distance(cell.gridPosition, startPoint);
+            cellDelays.Add((cell, distance));
+
+            maximumDistance = Mathf.Max(maximumDistance, distance);
+
+            cell.visual.SetActive(true);
+            cell.visual.transform.localScale = Vector3.one * minimumScale;
+
+        }
+
+        cellDelays.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (var (cell, distance) in cellDelays) {
+
+            float delay = (distance / maximumDistance) * generationDuration;
+            StartCoroutine(scaleCell(cell.visual, delay));
+
+        }
+
+        yield return new WaitForSeconds(generationDuration + scaleSpeed);
+
+        gridSpawnAnimationEnded = true;
+
+    }
+
+    // ============================================================
+    // Grid Smooth Movement Animation
+    // ============================================================
+
+    public void playCenterGridAnimation(Vector3 targetPosition, Vector3 playerShift, System.Action onComplete, bool updateDuringMove = false) {
+
+        if (stopCenter == true) {
+
+            if (onComplete != null) {
+
+                onComplete.Invoke();
+
+            }
+
+            return;
+
+        }
+
+        if (Vector3.Distance(transform.position, targetPosition) < 0.01f) {
+
+            centerAnimationEnded = true;
+
+            if (onComplete != null) {
+
+                onComplete.Invoke();
+
+            }
+
+            return;
+
+        }
+
+        if (moveCoroutine != null) {
+
+            StopCoroutine(moveCoroutine);
+
+        }
+
+        centerAnimationEnded = false;
+        moveCoroutine = StartCoroutine(waitAndCenterGridAnimation(targetPosition, playerShift, onComplete, updateDuringMove));
+
+    }
+
+    private IEnumerator waitAndCenterGridAnimation(Vector3 targetPosition, Vector3 playerShift, System.Action onComplete, bool updateDuringMove) {
+
+        while (WaypointManager.Instance.isWaypointFalling() == true) {
+
+            yield return null;
+
+        }
+
+        if (EntityWaverManager.Instance != null) {
+
+            bool hasActiveWaves = EntityWaverManager.Instance.activeAnimations.Count > 0;
+            bool hasSpinningChests = ChestInteractable.AnyChestSpinning == true;
+            
+            waitingToRecenter = hasActiveWaves == true || hasSpinningChests == true;
+
+            while (waitingToRecenter == true) {
+
+                Debug.Log("cachivache");
+
+                hasActiveWaves = EntityWaverManager.Instance.activeAnimations.Count > 0;
+                hasSpinningChests = ChestInteractable.AnyChestSpinning == true;
+
+                waitingToRecenter = hasActiveWaves == true || hasSpinningChests == true;
+
+                yield return null;
+
+            }
+        }
+
+        Vector3 shift = targetPosition - transform.position;
+        float totalMoveTime = centerMoveDuration + overshootDuration;
+
+        EntityAnimator[] activeAnimators = GetComponentsInChildren<EntityAnimator>();
+
+        foreach (EntityAnimator animator in activeAnimators) {
+
+            animator.playRecenterAnimation(shift, totalMoveTime, overshootAmount);
+
+        }
+
+        yield return StartCoroutine(centerGridAnimation(targetPosition, playerShift, () => { StartCoroutine(waitForAllCellAnimations(onComplete)); }, updateDuringMove));
+
+    }
+
+    private IEnumerator centerGridAnimation(Vector3 targetPosition, Vector3 playerShift, System.Action onComplete, bool updateDuringMove) {
+
+        Vector3 startPosition = transform.position;
+        Vector3 playerStartPosition;
+
+        if (playerMover != null) {
+
+            playerStartPosition = playerMover.transform.position;
+
+        }
+        else {
+
+            playerStartPosition = Vector3.zero;
+
+        }
+
+        float totalDuration = centerMoveDuration + overshootDuration;
+        float timer = 0f;
+
+        shouldStopAfterCenter = false;
+
+        while (timer < totalDuration) {
+
+            if (stopCenter == true) {
+
+                shouldStopAfterCenter = true;
+
+            }
+
+            float timeFraction = timer / totalDuration;
+            float currentOvershootAmount = overshootAmount;
+
+            timeFraction = timeFraction * 2f;
+            float easedTimeFraction;
+
+            if (timeFraction < 1f) {
+
+                easedTimeFraction = 0.5f * (timeFraction * timeFraction * ((currentOvershootAmount + 1f) * timeFraction - currentOvershootAmount));
+
+            }
+
+            else {
+
+                timeFraction = timeFraction - 2f;
+                easedTimeFraction = 0.5f * (timeFraction * timeFraction * ((currentOvershootAmount + 1f) * timeFraction + currentOvershootAmount) + 2f);
+
+            }
+
+            transform.position = Vector3.LerpUnclamped(startPosition, targetPosition, easedTimeFraction);
+
+            if (playerMover != null) {
+
+                playerMover.transform.position = Vector3.LerpUnclamped(playerStartPosition, playerStartPosition + playerShift, easedTimeFraction);
+
+            }
+
+            if (updateDuringMove == true) {
+
+                gridManager.updateGridCellsPartial();
+
+            }
+
+            timer = timer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        transform.position = targetPosition;
+
+        if (playerMover != null) {
+
+            playerMover.transform.position = playerStartPosition + playerShift;
+
+        }
+
+        gridManager.updateGridCellsPartial();
+
+        if (shouldStopAfterCenter == true) {
+
+            stopCenter = true;
+
+        }
+
+        if (onComplete != null) {
+
+            StartCoroutine(waitForAllCellAnimations(onComplete));
+
+        }
+    }
+
+    // ============================================================
+    // Animate New Cells After Recentering
+    // ============================================================
+
+    public void playNewCellsAnimation(IEnumerable<Cell> newCells) {
+
+        Vector2Int playerPosition = playerMover.getCurrentGridPos();
+        List<(Cell cell, float distance)> cellDelays = new List<(Cell, float)>();
+
+        foreach (var cell in newCells) {
+
+            if (cell == null || cell.visual == null) {
+
+                continue;
+
+            }
+
+            float distance = Vector2Int.Distance(cell.gridPosition, playerPosition);
+            cellDelays.Add((cell, distance));
+
+        }
+
+        cellDelays.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+        float maximumDistance = 0f;
+
+        foreach (var cellDelay in cellDelays) {
+
+            maximumDistance = Mathf.Max(maximumDistance, cellDelay.distance);
+
+        }
+
+        foreach (var (cell, distance) in cellDelays) {
+
+            cell.visual.SetActive(true);
+            cell.visual.transform.localScale = Vector3.one * minimumScale;
+
+            float delay;
+
+            if (maximumDistance > 0f) {
+
+                delay = (distance / maximumDistance) * delayMultiplier;
+
+            }
+
+            else {
+
+                delay = 0f;
+
+            }
+
+            StartCoroutine(scaleCell(cell.visual, delay));
+
+        }
+    }
+
+    private IEnumerator waitForAllCellAnimations(System.Action onComplete) {
+
+        while (activeCellAnimations > 0) {
+
+            yield return null;
+
+        }
+
+        yield return new WaitForSeconds(0.2f);
+
+        centerAnimationEnded = true;
+
+        if (GridHighlighter.Instance != null) {
+
+            GridHighlighter.Instance.updateVirtualPerceptionCache();
+
+        }
+
+        if (onComplete != null) {
+
+            onComplete.Invoke();
+
+        }
+    }
+
+    private void findPlayer() {
+
+        if (playerMover != null) {
+
+            return;
+
+        }
+
+        if (playerMover == null) {
+
+            GameObject playerObject = null;
+            GameObject player = GameObject.FindWithTag("Player");
+
+            if (player != null) {
+
+                playerObject = player.transform.parent.gameObject;
+
+            }
+
+            if (playerObject != null) {
+
+                playerMover = playerObject.GetComponent<PlayerControllerBase>();
+
+            }
+        }
+    }
+}
