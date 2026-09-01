@@ -1,0 +1,36 @@
+// ============================================================
+// Readme of BossPrefabMapping
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable structure used to map a specific biome boss identifier to its corresponding visual and logic prefab. 
+It ensures the correct guardian is summoned based on the game's state.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the unique identifier (EnemyID) for a specific boss.
+- Holds the reference to the GameObject prefab associated with that boss.
+- Allows configuration through the Unity Inspector via serialization.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public struct BossPrefabMapping {
+
+    // ============================================================
+    // Mapping Data
+    // ============================================================
+
+    public EnemyID bossID;
+    public GameObject bossPrefab;
+
+}
