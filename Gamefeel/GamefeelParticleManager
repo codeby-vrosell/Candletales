@@ -1,5 +1,5 @@
 // ============================================================
-// Readme of GameFeelParticleManager
+// Readme of GamefeelParticleManager
 // ============================================================ 
 
 // ============================================================
@@ -25,13 +25,13 @@ It ensures effects are instantiated with proper offsets and automatically destro
 
 using UnityEngine;
 
-public class GameFeelParticleManager : MonoBehaviour {
+public class GamefeelParticleManager : MonoBehaviour {
 
     // ============================================================
     // Singleton
     // ============================================================
 
-    public static GameFeelParticleManager Instance { get; private set; }
+    public static GamefeelParticleManager Instance { get; private set; }
 
     // ============================================================
     // Enemy Hit Particle Prefabs
