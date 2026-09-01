@@ -1,0 +1,1467 @@
+// ============================================================
+// Readme of BiomeGenerator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script is the core engine for procedural world generation on the modular grid. 
+It calculates deterministically which tiles will spawn ground, water, obstacles, enemy groups, and unique entities based on a master seed.
+The logic is executed in overlapping layers, ensuring spatial coherence while dynamically extending the board infinitely around the player.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Uses custom noise algorithms and seeded pseudo-random logic to build deterministic biomes.
+- Manages the distribution of water bodies (lakes and rivers) with customizable frequency.
+- Clusters enemies into cohesive groups with a designated leader and specific spawning weights.
+- Enforces safe zones around the grid origin to prevent immediate danger upon starting a run.
+- Distributes interactive entities (merchants, goblins, bonfires, chests, slimes, and mimics) using a sector-based grid approach.
+- Implements comprehensive caching systems to reduce recalculations across frames.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+[RequireComponent(typeof(GridManager))]
+public class BiomeGenerator : MonoBehaviour {
+
+    // ============================================================
+    // Core Settings
+    // ============================================================
+
+    [Header("Seed")]
+    public int seed;
+
+    [Header("Biomes")]
+    public BiomeConfig[] biomes;
+
+    [Header("Biomes Generation Settings")]
+    public float approximateBiomeSize;
+
+    [Range(0f, 4f)] 
+    public float warpStrength;
+
+    [Range(0.5f, 4f)] 
+    public float warpFrequency;
+
+    [Range(0.1f, 2f)] 
+    public float falloffSmoothness;
+
+    // ============================================================
+    // Layer Settings (Water & Obstacles)
+    // ============================================================
+
+    [Header("Water Generation Settings")]
+    public bool enableWater = true;
+
+    [Range(0.001f, 0.1f)] 
+    public float lakeFrequency;
+
+    [Range(0f, 1f)] 
+    public float lakeThreshold;
+
+    [Range(0.001f, 0.1f)] 
+    public float riverFrequency;
+
+    [Range(0f, 1f)] 
+    public float riverWidth;
+
+    [Header("Obstacles Generation Settings")]
+    public bool enableObstacles = true;
+    public float obstaclesSafeZone;
+
+    // ============================================================
+    // Layer Settings (Enemies)
+    // ============================================================
+
+    [Header("Enemy Layer Settings")]
+    public bool enableEnemies = true;
+
+    [Range(0f, 1f)] 
+    public float mainEnemyProbability;
+
+    public float enemiesSafeZone;
+    public int minimumGroupSeparation;
+    public int turnsToRespawn;
+    public int[] groupSizeWeights = new int[] {};
+
+    // ============================================================
+    // Layer Settings (Entities)
+    // ============================================================
+
+    [Header("Entity Settings")]
+    public bool enableEntities = true;
+    public float entitiesSafeZone;
+
+    [Min(1)] 
+    public int minimumEntitySeparation;
+
+    [Min(1)] 
+    public int minimumSameEntitySeparation;
+
+    public int merchantSpacing;
+    public int goblinSpacing;
+    public int bonfireSpacing;
+    public int chestSpacing;
+    public int slimeSpacing;
+    public int mimicSpacing;
+
+    // ============================================================
+    // Runtime Caches
+    // ============================================================
+
+    private Dictionary<Vector2Int, BiomeSeed> seedCache = new Dictionary<Vector2Int, BiomeSeed>();
+    private Dictionary<Vector2Int, bool> waterCache = new Dictionary<Vector2Int, bool>();
+
+    private Dictionary<Vector2Int, bool> enemyLeaderCache = new Dictionary<Vector2Int, bool>();
+    private Dictionary<Vector2Int, TileType> discoveredEnemyTypeCache = new Dictionary<Vector2Int, TileType>();
+    private Dictionary<Vector2Int, int> discoveredGroupSizeCache = new Dictionary<Vector2Int, int>();
+    private Dictionary<Vector2Int, TileType> discoveredForcedEnemyCache = new Dictionary<Vector2Int, TileType>();
+    private Dictionary<Vector2Int, bool> discoveredLeaderCache = new Dictionary<Vector2Int, bool>();
+
+    private List<Vector2Int> keysToRemoveCache = new List<Vector2Int>(100);
+
+    private Dictionary<SectorKey, Vector2Int?> deterministicSectorCache = new Dictionary<SectorKey, Vector2Int?>();
+    private Dictionary<Vector2Int, BiomeCellData> frameDataCache = new Dictionary<Vector2Int, BiomeCellData>();
+    private List<Vector2Int> sharedCandidates = new List<Vector2Int>(30);
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private float waterOffsetX;
+    private float waterOffsetY;
+    private float obstacleOffsetX;
+    private float obstacleOffsetY;
+
+    // ============================================================
+    // Initialization
+    // ============================================================
+
+    private void Awake() {
+
+        TileType[] allEnemies = Resources.LoadAll<TileType>("TileTypes/Enemies/");
+
+        foreach (TileType enemy in allEnemies) {
+
+            enemy.restoreOriginalWeight();
+
+        }
+
+        if (seed == 0) {
+
+            seed = generateRandomSeed();
+
+        }
+
+        System.Random pseudoRandomNumberGenerator = new System.Random(seed);
+
+        enemyLeaderCache.Clear();
+        waterCache.Clear();
+
+        discoveredEnemyTypeCache.Clear();
+        discoveredGroupSizeCache.Clear();
+        discoveredForcedEnemyCache.Clear();
+        discoveredLeaderCache.Clear();
+
+        waterOffsetX = pseudoRandomNumberGenerator.Next(-10000, 10000);
+        waterOffsetY = pseudoRandomNumberGenerator.Next(-10000, 10000);
+
+        obstacleOffsetX = pseudoRandomNumberGenerator.Next(-10000, 10000);
+        obstacleOffsetY = pseudoRandomNumberGenerator.Next(-10000, 10000);
+
+    }
+
+    private int generateRandomSeed() {
+
+        return UnityEngine.Random.Range(int.MinValue, int.MaxValue);
+
+    }
+
+    // ============================================================
+    // Layer 1: Biomes & Ground
+    // ============================================================
+
+    public BiomeCellData getBiomeDataAt(Vector2Int gridPosition) {
+
+        bool hasCache = frameDataCache.TryGetValue(gridPosition, out BiomeCellData cachedData);
+
+        if (hasCache == true) {
+
+            return cachedData;
+
+        }
+
+        if (biomes == null || biomes.Length == 0) {
+
+            return new BiomeCellData();
+
+        }
+
+        BiomeConfig selectedBiome = getBiomeConfigAt(gridPosition);
+        Vector2 warpedPosition = applyWarp(gridPosition);
+
+        bool isWater = false;
+
+        if (enableWater == true) {
+
+            isWater = isWaterFiltered(gridPosition, warpedPosition);
+
+        }
+
+        bool isObstacle = false;
+
+        if (enableObstacles == true && selectedBiome.enableObstacles == true) {
+
+            float distanceInX = Mathf.Abs(gridPosition.x);
+            float distanceInY = Mathf.Abs(gridPosition.y);
+            float maximumDistance = Mathf.Max(distanceInX, distanceInY);
+
+            if (maximumDistance > obstaclesSafeZone) {
+
+                isObstacle = isObstacleAt(gridPosition, selectedBiome);
+
+            }
+        }
+
+        TileType entityToSpawn = null;
+
+        if (enableEntities == true && isObstacle == false && isWater == false) {
+
+            float distanceSquared = gridPosition.sqrMagnitude;
+            float safeZoneSquared = entitiesSafeZone * entitiesSafeZone;
+
+            if (distanceSquared >= safeZoneSquared) {
+
+                for (int layer = 0; layer < 6; layer = layer + 1) {
+
+                    bool foundEntity = tryGetDeterministicEntity(gridPosition, layer, out TileType spawnedEntity);
+
+                    if (foundEntity == true) {
+
+                        entityToSpawn = spawnedEntity;
+                        break;
+
+                    }
+                }
+            }
+        }
+
+        TileType enemyToSpawn = null;
+
+        if (entityToSpawn == null && enableEnemies == true && selectedBiome.enableEnemies == true && isObstacle == false) {
+
+            TileType potentialEnemy = getEnemyAt(gridPosition, selectedBiome);
+
+            if (potentialEnemy != null) {
+
+                bool isValidEnemy = true;
+
+                if (potentialEnemy.mustSpawnOnWater == true && isWater == false) {
+
+                    isValidEnemy = false;
+
+                }
+                else if (potentialEnemy.canSpawnOnWater == false && potentialEnemy.mustSpawnOnWater == false && isWater == true) {
+
+                    isValidEnemy = false;
+
+                }
+
+                if (isValidEnemy == true) {
+
+                    enemyToSpawn = potentialEnemy;
+
+                }
+            }
+        }
+
+        int customHash = gridPosition.x * 73856093 ^ gridPosition.y * 19349663 ^ seed;
+
+        BiomeCellData finalData = selectedBiome.getBiomeCellData(isWater, isObstacle, mainEnemyProbability, enemyToSpawn, customHash);
+        finalData.entityType = entityToSpawn;
+        
+        frameDataCache[gridPosition] = finalData;
+
+        return finalData;
+
+    }
+
+    // ============================================================
+    // Biome Seed Management by Chunk
+    // ============================================================
+
+    private BiomeSeed getSeedAtChunk(Vector2Int position, int offsetX, int offsetY) {
+
+        float range = approximateBiomeSize;
+        Vector2Int baseChunk = new Vector2Int(Mathf.FloorToInt(position.x / range), Mathf.FloorToInt(position.y / range));
+        Vector2Int targetChunk = new Vector2Int(baseChunk.x + offsetX, baseChunk.y + offsetY);
+
+        bool hasChunkCache = seedCache.TryGetValue(targetChunk, out var chunkSeed);
+
+        if (hasChunkCache == false) {
+
+            chunkSeed = generateSeedForChunk(targetChunk);
+            seedCache[targetChunk] = chunkSeed;
+
+        }
+
+        return chunkSeed;
+
+    }
+
+    private BiomeSeed generateSeedForChunk(Vector2Int chunk) {
+
+        int hash = chunk.x * 73856093 ^ chunk.y * 19349663 ^ seed;
+        System.Random localRandom = new System.Random(hash);
+
+        float range = approximateBiomeSize;
+
+        Vector2 basePosition = new Vector2(chunk.x * range + (float)localRandom.NextDouble() * range, chunk.y * range + (float)localRandom.NextDouble() * range);
+
+        int biomeIndex = localRandom.Next(0, biomes.Length);
+
+        Vector2Int[] neighbors = new Vector2Int[] { 
+
+            new Vector2Int(chunk.x + 1, chunk.y), 
+            new Vector2Int(chunk.x - 1, chunk.y), 
+            new Vector2Int(chunk.x, chunk.y + 1), 
+            new Vector2Int(chunk.x, chunk.y - 1), 
+            new Vector2Int(chunk.x + 1, chunk.y + 1), 
+            new Vector2Int(chunk.x + 1, chunk.y - 1), 
+            new Vector2Int(chunk.x - 1, chunk.y + 1), 
+            new Vector2Int(chunk.x - 1, chunk.y - 1)
+
+        };
+
+        foreach (var neighborChunk in neighbors) {
+
+            int neighborRawIndex = getRawBiomeIndexForChunk(neighborChunk);
+
+            // If a neighbor is the same biome, try to pick an alternative to prevent massive identical biomes
+            if (neighborRawIndex == biomeIndex) {
+
+                for (int attempt = 0; attempt < biomes.Length; attempt = attempt + 1) {
+
+                    biomeIndex = (biomeIndex + 1) % biomes.Length;
+                    bool hasConflict = false;
+
+                    foreach (var subNeighbor in neighbors) {
+
+                        if (getRawBiomeIndexForChunk(subNeighbor) == biomeIndex) {
+
+                            hasConflict = true;
+                            break;
+
+                        }
+                    }
+
+                    if (hasConflict == false) {
+
+                        break;
+
+                    }
+                }
+            }
+        }
+
+        return new BiomeSeed { position = basePosition, biomeIndex = biomeIndex };
+
+    }
+
+    private bool isBiomeInNeighbor(Vector2Int chunk, int biomeIndex) {
+
+        Vector2Int[] neighbors = new Vector2Int[] {
+
+            new Vector2Int(chunk.x + 1, chunk.y), 
+            new Vector2Int(chunk.x - 1, chunk.y), 
+            new Vector2Int(chunk.x, chunk.y + 1), 
+            new Vector2Int(chunk.x, chunk.y - 1), 
+            new Vector2Int(chunk.x + 1, chunk.y + 1), 
+            new Vector2Int(chunk.x + 1, chunk.y - 1), 
+            new Vector2Int(chunk.x - 1, chunk.y + 1), 
+            new Vector2Int(chunk.x - 1, chunk.y - 1)
+
+        };
+
+        foreach (var neighborChunk in neighbors) {
+
+            bool hasSeedCache = seedCache.TryGetValue(neighborChunk, out BiomeSeed neighborSeed);
+
+            if (hasSeedCache == true) {
+
+                if (neighborSeed.biomeIndex == biomeIndex) {
+
+                    return true;
+
+                }
+            }
+        }
+
+        return false;
+
+    }
+
+    // ============================================================
+    // Warp Application (Form Distortion)
+    // ============================================================
+
+    private Vector2 applyWarp(Vector2 position) {
+
+        float noiseX = Mathf.PerlinNoise(position.x * warpFrequency, position.y * warpFrequency);
+        float noiseY = Mathf.PerlinNoise(position.x * warpFrequency + 1000f, position.y * warpFrequency + 2000f);
+
+        Vector2 warpVector = new Vector2(noiseX - 0.5f) * warpStrength * approximateBiomeSize * 0.3f, (noiseY - 0.5f) * warpStrength * approximateBiomeSize * 0.3f);
+
+        return (Vector2)position + warpVector;
+
+    }
+
+    // ============================================================
+    // Layer 2: Water
+    // ============================================================
+
+    private bool isWaterFiltered(Vector2Int gridPosition, Vector2? centerWarp = null) {
+
+        bool amIWater = getRawWaterWithCache(gridPosition, centerWarp);
+        int waterNeighbors = 0;
+
+        Vector2Int[] directions = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        foreach (var direction in directions) {
+
+            Vector2Int neighborPosition = gridPosition + direction;
+            bool isNeighborWater = getRawWaterWithCache(neighborPosition);
+
+            if (isNeighborWater == true) {
+
+                waterNeighbors = waterNeighbors + 1;
+
+            }
+        }
+
+        if (amIWater == true) {
+
+            if (waterNeighbors < 1) {
+
+                return false;
+
+            }
+
+            return true;
+
+        }
+
+        return false;
+
+    }
+
+    private bool checkRawWater(Vector2 position, Vector2Int gridPosition) {
+
+        float lakeNoise = Mathf.PerlinNoise((position.x + waterOffsetX) * lakeFrequency, (position.y + waterOffsetY) * lakeFrequency);
+
+        if (lakeNoise > lakeThreshold) {
+
+            return true;
+
+        }
+
+        float riverNoise = Mathf.PerlinNoise((position.x + waterOffsetX) * riverFrequency, (position.y + waterOffsetY) * riverFrequency);
+        float distanceFromCenter = Mathf.Abs(riverNoise - 0.5f);
+
+        if (distanceFromCenter < (riverWidth * 0.5f)) {
+
+            return true;
+
+        }
+
+        BiomeConfig biomeAtPosition = getBiomeConfigAt(gridPosition);
+
+        if (biomeAtPosition != null && biomeAtPosition.enablePuddles == true) {
+
+            float baseNoise = Mathf.PerlinNoise((position.x + waterOffsetX + 5555) * biomeAtPosition.puddleNoiseFrequency, (position.y + waterOffsetY + 5555) * biomeAtPosition.puddleNoiseFrequency);
+            float randomValue = getPseudoRandom(gridPosition.x, gridPosition.y);
+            float finalNoise = Mathf.Lerp(baseNoise, randomValue, biomeAtPosition.puddleScatterInfluence);
+
+            if (finalNoise > biomeAtPosition.puddleDensityThreshold) {
+
+                return true;
+
+            }
+        }
+
+        return false;
+
+    }
+
+    private bool getRawWaterWithCache(Vector2Int gridPosition, Vector2? precalculatedWarp = null) {
+
+        bool hasWaterCache = waterCache.TryGetValue(gridPosition, out bool cachedResult);
+
+        if (hasWaterCache == true) {
+
+            return cachedResult;
+
+        }
+
+        Vector2 finalPosition;
+
+        if (precalculatedWarp.HasValue == true) {
+
+            finalPosition = precalculatedWarp.Value;
+
+        }
+
+        else {
+
+            finalPosition = applyWarp(gridPosition);
+
+        }
+
+        bool isWater = checkRawWater(finalPosition, gridPosition);
+        waterCache[gridPosition] = isWater;
+
+        return isWater;
+
+    }
+
+    // ============================================================
+    // Layer 3: Obstacles
+    // ============================================================
+
+    private bool isObstacleAt(Vector2Int position, BiomeConfig configuration) {
+
+        float frequency = configuration.obstacleNoiseFrequency;
+        float density = configuration.obstacleDensityThreshold;
+        float scatter = configuration.obstacleScatterInfluence;
+
+        float zoneNoise = Mathf.PerlinNoise((position.x + obstacleOffsetX) * frequency, (position.y + obstacleOffsetY) * frequency);
+        float randomValue = getPseudoRandom(position.x, position.y);
+        float finalNoise = Mathf.Lerp(zoneNoise, zoneNoise * randomValue, scatter);
+
+        return finalNoise > (1f - density);
+
+    }
+
+    // ============================================================
+    // Layer 4: Enemies
+    // ============================================================
+
+    private TileType getEnemyAt(Vector2Int myPosition, BiomeConfig configuration) {
+
+        if (myPosition.sqrMagnitude < (enemiesSafeZone * enemiesSafeZone)) {
+
+            return null;
+
+        }
+
+        int searchRadius = 2;
+        List<Vector2Int> foundLeaders = new List<Vector2Int>();
+
+        for (int x = -searchRadius; x <= searchRadius; x = x + 1) {
+
+            for (int y = -searchRadius; y <= searchRadius; y = y + 1) {
+
+                Vector2Int potentialLeaderPosition = myPosition + new Vector2Int(x, y);
+                bool isLeader = isGroupLeader(potentialLeaderPosition, configuration);
+
+                if (isLeader == true) {
+
+                    foundLeaders.Add(potentialLeaderPosition);
+
+                }
+            }
+        }
+
+        if (foundLeaders.Count == 0) {
+
+            return null;
+
+        }
+
+        foundLeaders.Sort((a, b) => (a - myPosition).sqrMagnitude.CompareTo((b - myPosition).sqrMagnitude));
+
+        foreach (Vector2Int leaderPosition in foundLeaders) {
+
+            if (leaderPosition.sqrMagnitude < (enemiesSafeZone * enemiesSafeZone)) {
+
+                continue;
+
+            }
+
+            BiomeConfig leaderBiomeConfig = getBiomeConfigAt(leaderPosition);
+            bool isLeaderValid = true;
+
+            if (enableWater == true && isWaterFiltered(leaderPosition) == true) {
+
+                isLeaderValid = false;
+
+            }
+
+            if (enableObstacles == true && leaderBiomeConfig.enableObstacles == true && isObstacleAt(leaderPosition, leaderBiomeConfig) == true) {
+
+                isLeaderValid = false;
+
+            }
+
+            if (isLeaderValid == false) {
+
+                continue;
+
+            }
+
+            int leaderHash = leaderPosition.x * 73856093 ^ leaderPosition.y * 19349663 ^ seed;
+            bool hasEnemyTypeCache = discoveredEnemyTypeCache.TryGetValue(leaderPosition, out TileType groupEnemyType);
+
+            if (hasEnemyTypeCache == false) {
+
+                groupEnemyType = leaderBiomeConfig.pickAnEnemy(mainEnemyProbability, leaderHash);
+                discoveredEnemyTypeCache[leaderPosition] = groupEnemyType;
+
+            }
+
+            if (groupEnemyType == null) {
+
+                continue;
+
+            }
+
+            bool hasGroupSizeCache = discoveredGroupSizeCache.TryGetValue(leaderPosition, out int targetGroupSize);
+
+            if (hasGroupSizeCache == false) {
+
+                targetGroupSize = getWeightedGroupSize(leaderHash, groupSizeWeights);
+                discoveredGroupSizeCache[leaderPosition] = targetGroupSize;
+
+            }
+
+            // Distribute enemies in a circle around the leader
+            List<Vector2Int> groupOffsets = new List<Vector2Int>();
+            groupOffsets.Add(Vector2Int.zero);
+
+            int enemiesNeeded = targetGroupSize - 1;
+
+            if (enemiesNeeded > 0) {
+
+                sharedCandidates.Clear();
+                int spreadRadius = 2;
+
+                for (int x = -spreadRadius; x <= spreadRadius; x = x + 1) {
+
+                    for (int y = -spreadRadius; y <= spreadRadius; y = y + 1) {
+
+                        if (x == 0 && y == 0) {
+
+                            continue;
+
+                        }
+
+                        sharedCandidates.Add(new Vector2Int(x, y));
+
+                    }
+                }
+
+                for (int i = 0; i < sharedCandidates.Count; i = i + 1) {
+
+                    int randomIndex = getFastRandomInt(leaderHash + (i * 997), i, sharedCandidates.Count);
+
+                    Vector2Int temporaryCandidate = sharedCandidates[i];
+                    sharedCandidates[i] = sharedCandidates[randomIndex];
+                    sharedCandidates[randomIndex] = temporaryCandidate;
+
+                }
+
+                for (int i = 0; i < sharedCandidates.Count; i = i + 1) {
+
+                    if (enemiesNeeded <= 0) {
+
+                        break;
+
+                    }
+
+                    Vector2Int candidate = sharedCandidates[i];
+                    Vector2Int absolutePosition = leaderPosition + candidate;
+
+                    if (absolutePosition.sqrMagnitude < (enemiesSafeZone * enemiesSafeZone)) {
+
+                        continue;
+
+                    }
+
+                    bool isValidSlot = true;
+
+                    if (enableWater == true && isWaterFiltered(absolutePosition) == true) {
+
+                        isValidSlot = false;
+
+                    }
+
+                    if (enableObstacles == true && leaderBiomeConfig.enableObstacles == true && isObstacleAt(absolutePosition, leaderBiomeConfig) == true) {
+
+                        isValidSlot = false;
+
+                    }
+
+                    if (isValidSlot == true && enableObstacles == true && leaderBiomeConfig.enableObstacles == true) {
+
+                        if (isPositionCrushedByMultiTile(absolutePosition, leaderBiomeConfig) == true) {
+
+                            isValidSlot = false;
+
+                        }
+                    }
+
+                    if (isValidSlot == false) {
+
+                        continue;
+
+                    }
+
+                    bool isTooClose = false;
+
+                    foreach (Vector2Int existingOffset in groupOffsets) {
+
+                        int distance = Mathf.Abs(candidate.x - existingOffset.x) + Mathf.Abs(candidate.y - existingOffset.y);
+
+                        if (distance == 1) {
+
+                            isTooClose = true;
+                            break;
+
+                        }
+                    }
+
+                    if (isTooClose == false) {
+
+                        groupOffsets.Add(candidate);
+                        enemiesNeeded = enemiesNeeded - 1;
+
+                    }
+                }
+            }
+
+            int minimumAllowedSize = 1;
+
+            if (groupSizeWeights != null) {
+
+                for (int w = 0; w < groupSizeWeights.Length; w = w + 1) {
+
+                    if (groupSizeWeights[w] > 0) {
+
+                        minimumAllowedSize = w + 1;
+                        break;
+
+                    }
+                }
+            }
+
+            if (groupOffsets.Count < minimumAllowedSize) {
+
+                continue;
+
+            }
+
+            Vector2Int myOffset = myPosition - leaderPosition;
+
+            foreach (var offset in groupOffsets) {
+
+                if (offset == myOffset) {
+
+                    return groupEnemyType;
+
+                }
+            }
+        }
+
+        return null;
+
+    }
+
+    private bool isGroupLeader(Vector2Int position, BiomeConfig configuration) {
+
+        bool hasDiscoveredLeaderCache = discoveredLeaderCache.TryGetValue(position, out bool persistentResult);
+
+        if (hasDiscoveredLeaderCache == true) {
+
+            return persistentResult;
+
+        }
+
+        bool hasEnemyLeaderCache = enemyLeaderCache.TryGetValue(position, out bool cachedResult);
+
+        if (hasEnemyLeaderCache == true) {
+
+            return cachedResult;
+
+        }
+
+        bool isLeader = false;
+
+        float spatialValue = getPseudoRandom(position.x + 5000, position.y + 5000);
+        float checkThreshold = Mathf.Clamp(configuration.enemyGroupFrequency * 2f, 0.1f, 1f);
+
+        if (spatialValue > checkThreshold) {
+
+            isLeader = false;
+            goto saveAndReturn;
+
+        }
+
+        float densityRoll = getPseudoRandom(position.x - 5000, position.y - 5000);
+
+        if (densityRoll >= configuration.enemyGroupFrequency) {
+
+            isLeader = false;
+            goto saveAndReturn;
+
+        }
+
+        if (minimumGroupSeparation > 0) {
+
+            for (int x = -minimumGroupSeparation; x <= minimumGroupSeparation; x = x + 1) {
+
+                for (int y = -minimumGroupSeparation; y <= minimumGroupSeparation; y = y + 1) {
+
+                    if (x == 0 && y == 0) {
+
+                        continue;
+
+                    }
+
+                    Vector2Int neighborPosition = position + new Vector2Int(x, y);
+                    float neighborSpatial = getPseudoRandom(neighborPosition.x + 5000, neighborPosition.y + 5000);
+
+                    if (neighborSpatial < spatialValue) {
+
+                        float neighborDensity = getPseudoRandom(neighborPosition.x - 5000, neighborPosition.y - 5000);
+
+                        if (neighborDensity < configuration.enemyGroupFrequency) {
+
+                            isLeader = false;
+                            goto saveAndReturn;
+
+                        }
+                    }
+
+                    if (Mathf.Approximately(neighborSpatial, spatialValue) == true) {
+
+                        float neighborDensity = getPseudoRandom(neighborPosition.x - 5000, neighborPosition.y - 5000);
+
+                        if (neighborDensity < configuration.enemyGroupFrequency) {
+
+                            if (neighborPosition.x < position.x || (neighborPosition.x == position.x && neighborPosition.y < position.y)) {
+
+                                isLeader = false;
+                                goto saveAndReturn;
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        isLeader = true;
+
+        saveAndReturn:
+        
+        enemyLeaderCache[position] = isLeader;
+        discoveredLeaderCache[position] = isLeader;
+
+        return isLeader;
+
+    }
+
+    private int getWeightedGroupSize(int seedValue, int[] weights) {
+
+        int totalWeight = 0;
+
+        foreach (int weight in weights) {
+
+            totalWeight = totalWeight + weight;
+
+        }
+
+        if (totalWeight <= 0) {
+
+            return 1;
+
+        }
+
+        int randomRoll = getFastRandomInt(seedValue, 0, totalWeight);
+
+        for (int i = 0; i < weights.Length; i = i + 1) {
+
+            if (weights[i] <= 0) {
+
+                continue;
+
+            }
+
+            randomRoll = randomRoll - weights[i];
+
+            if (randomRoll < 0) {
+
+                return i + 1;
+
+            }
+        }
+
+        return 1;
+
+    }
+
+    public TileType getForcedEnemyAt(Vector2Int gridPosition) {
+
+        if (enableEnemies == false) {
+
+            return null;
+
+        }
+
+        if (gridPosition.sqrMagnitude < (enemiesSafeZone * enemiesSafeZone)) {
+
+            return null;
+
+        }
+
+        BiomeConfig configuration = getBiomeConfigAt(gridPosition);
+
+        if (configuration == null || configuration.enableEnemies == false) {
+
+            return null;
+
+        }
+
+        int customHash = gridPosition.x * 73856093 ^ gridPosition.y * 19349663 ^ seed;
+        bool hasForcedEnemyCache = discoveredForcedEnemyCache.TryGetValue(gridPosition, out TileType forcedEnemy);
+
+        if (hasForcedEnemyCache == false) {
+
+            forcedEnemy = configuration.pickAnEnemy(mainEnemyProbability, customHash);
+            discoveredForcedEnemyCache[gridPosition] = forcedEnemy;
+
+        }
+
+        return forcedEnemy;
+
+    }
+
+    public void recalculateAllBiomeEnemyWeights() {
+
+        if (biomes == null) {
+
+            return;
+
+        }
+
+        foreach (var biome in biomes) {
+
+            if (biome != null) {
+
+                biome.recalculateEnemyWeights();
+
+            }
+        }
+    }
+
+    private bool isPositionCrushedByMultiTile(Vector2Int position, BiomeConfig configuration) {
+
+        int checkRadius = 4;
+
+        for (int x = -checkRadius; x <= checkRadius; x = x + 1) {
+
+            for (int y = -checkRadius; y <= checkRadius; y = y + 1) {
+
+                Vector2Int neighborPosition = position + new Vector2Int(x, y);
+                bool isObstacle = isObstacleAt(neighborPosition, configuration);
+
+                if (isObstacle == true) {
+
+                    int baseHash = neighborPosition.x * 73856093 ^ neighborPosition.y * 19349663 ^ seed;
+                    int obstacleHash = baseHash + 1;
+
+                    bool neighborIsWater = enableWater == true && isWaterFiltered(neighborPosition) == true;
+                    TileType obstacleType = configuration.pickObstacleForPrediction(obstacleHash, neighborIsWater);
+
+                    if (obstacleType != null && obstacleType.isMultiTile == true && obstacleType.multiTileShape != null) {
+
+                        int rotationSteps = getRotationStepsPrediction(neighborPosition, obstacleType);
+
+                        if (neighborPosition == position) {
+
+                            return true;
+
+                        }
+
+                        foreach (var shapePart in obstacleType.multiTileShape) {
+
+                            Vector2Int partOffsetRotated = rotateOffsetPrediction(shapePart.offset, rotationSteps);
+                            Vector2Int footprintPosition = neighborPosition + partOffsetRotated;
+
+                            if (footprintPosition == position && shapePart.layer != MultiTileLayer.multiTileBorder) {
+
+                                return true;
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+
+    }
+
+    // ============================================================
+    // Layer 5: Entities
+    // ============================================================
+
+    public BiomeConfig getBiomeConfigAt(Vector2Int position) {
+
+        Vector2 warpedPosition = applyWarp(position);
+        const int searchRadius = 2;
+
+        float bestScore = float.NegativeInfinity;
+        int bestBiomeIndex = 0;
+
+        for (int cx = -searchRadius; cx <= searchRadius; cx = cx + 1) {
+
+            for (int cy = -searchRadius; cy <= searchRadius; cy = cy + 1) {
+
+                BiomeSeed chunkSeed = getSeedAtChunk(position, cx, cy);
+                float distance = Vector2.Distance(warpedPosition, chunkSeed.position);
+                float normalizedDistance = distance / (approximateBiomeSize * 0.5f);
+
+                float score = Mathf.Exp(-normalizedDistance * normalizedDistance * falloffSmoothness);
+
+                if (score > bestScore) {
+
+                    bestScore = score;
+                    bestBiomeIndex = chunkSeed.biomeIndex;
+
+                }
+            }
+        }
+
+        return biomes[bestBiomeIndex];
+
+    }
+
+    public TileType getForcedEntityAt(Vector2Int gridPosition) {
+
+        if (gridPosition.sqrMagnitude < (entitiesSafeZone * entitiesSafeZone)) {
+
+            return null;
+
+        }
+
+        BiomeConfig configuration = getBiomeConfigAt(gridPosition);
+
+        if (enableEntities == false) {
+
+            return null;
+
+        }
+
+        int customHash = gridPosition.x * 982451653 ^ gridPosition.y * 7654321;
+        return configuration.pickForcedEntity(customHash);
+
+    }
+
+    private bool isForcedEntityTooClose(Vector2Int myPosition, int checkRadius, TileType specialTileToAvoid) {
+
+        for (int x = -checkRadius; x <= checkRadius; x = x + 1) {
+
+            for (int y = -checkRadius; y <= checkRadius; y = y + 1) {
+
+                Vector2Int neighborPosition = myPosition + new Vector2Int(x, y);
+                BiomeConfig configuration = getBiomeConfigAt(neighborPosition);
+
+                if (enableObstacles == true && configuration.enableObstacles == true && isObstacleAt(neighborPosition, configuration) == true) {
+
+                    int baseHash = neighborPosition.x * 73856093 ^ neighborPosition.y * 19349663 ^ seed;
+                    int obstacleHash = baseHash + 1;
+
+                    bool neighborIsWater = enableWater == true && isWaterFiltered(neighborPosition) == true;
+                    TileType obstacleType = configuration.pickObstacleForPrediction(obstacleHash, neighborIsWater);
+
+                    if (obstacleType != null && obstacleType.isMultiTile == true && obstacleType.multiTileShape != null) {
+
+                        int rotationSteps = getRotationStepsPrediction(neighborPosition, obstacleType);
+
+                        foreach (var shapePart in obstacleType.multiTileShape) {
+
+                            if (shapePart.layer == MultiTileLayer.forceEntitySpawn) {
+
+                                Vector2Int partOffsetRotated = rotateOffsetPrediction(shapePart.offset, rotationSteps);
+                                Vector2Int forceSpawnWorldPosition = neighborPosition + partOffsetRotated;
+                                TileType forcedEntity = getForcedEntityAt(forceSpawnWorldPosition);
+
+                                if (forcedEntity != null && forcedEntity.name == specialTileToAvoid.name) {
+
+                                    return true;
+
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool isValidEntityAt(Vector2Int position) {
+
+        if (position.sqrMagnitude < (entitiesSafeZone * entitiesSafeZone)) {
+
+            return false;
+
+        }
+
+        if (enableWater == true && getRawWaterWithCache(position) == true) {
+
+            return false;
+
+        }
+
+        BiomeConfig configuration = getBiomeConfigAt(position);
+
+        if (configuration == null) {
+
+            return false;
+
+        }
+
+        if (enableObstacles == true && configuration.enableObstacles == true) {
+
+            float distanceInX = Mathf.Abs(position.x);
+            float distanceInY = Mathf.Abs(position.y);
+
+            if (Mathf.Max(distanceInX, distanceInY) > obstaclesSafeZone) {
+
+                if (isObstacleAt(position, configuration) == true) {
+
+                    return false;
+
+                }
+            }
+        }
+
+        return true;
+
+    }
+
+    private bool tryGetDeterministicEntity(Vector2Int globalPosition, int layerIndex, out TileType entityType) {
+
+        entityType = null;
+        int spacing = getSpacingForLayer(layerIndex);
+
+        int sectorX = Mathf.FloorToInt((float)globalPosition.x / spacing);
+        int sectorY = Mathf.FloorToInt((float)globalPosition.y / spacing);
+
+        Vector2Int? chosenPosition = getEntityPositionForSector(sectorX, sectorY, layerIndex);
+
+        if (chosenPosition.HasValue == true && chosenPosition.Value == globalPosition) {
+
+            entityType = getTileForLayer(globalPosition, layerIndex);
+            return true;
+
+        }
+
+        return false;
+    }
+
+    private Vector2Int? getEntityPositionForSector(int sectorX, int sectorY, int layerIndex) {
+
+        SectorKey key = new SectorKey { layerIndex = layerIndex, sectorX = sectorX, sectorY = sectorY };
+        bool hasSectorCache = deterministicSectorCache.TryGetValue(key, out Vector2Int? cachedPosition);
+
+        if (hasSectorCache == true) {
+
+            return cachedPosition;
+
+        }
+
+        int spacing = getSpacingForLayer(layerIndex);
+        int salt = getSaltForLayer(layerIndex);
+
+        int sectorOriginX = sectorX * spacing;
+        int sectorOriginY = sectorY * spacing;
+
+        int sectorSeed = sectorX * 982451653 ^ sectorY * 7654321 ^ seed ^ salt;
+        int margin = Mathf.Max(0, minimumSameEntitySeparation / 2);
+        int validRange = Mathf.Max(1, spacing - (margin * 2));
+
+        Vector2Int? finalChosenPosition = null;
+
+        for (int attempt = 0; attempt < 8; attempt = attempt + 1) {
+
+            int iterationSeedX = sectorSeed ^ (attempt * 73856093);
+            int iterationSeedY = sectorSeed ^ (attempt * 19349663) ^ 12345;
+
+            int offsetX = getFastRandomInt(iterationSeedX, 0, validRange) + margin;
+            int offsetY = getFastRandomInt(iterationSeedY, 0, validRange) + margin;
+
+            Vector2Int candidatePosition = new Vector2Int(sectorOriginX + offsetX, sectorOriginY + offsetY);
+
+            if (isValidEntityAt(candidatePosition) == true) {
+
+                if (isTooCloseToHigherPriorityEntities(candidatePosition, layerIndex) == false) {
+
+                    finalChosenPosition = candidatePosition;
+                    break;
+
+                }
+            }
+        }
+
+        deterministicSectorCache[key] = finalChosenPosition;
+        return finalChosenPosition;
+
+    }
+
+    private bool isTooCloseToHigherPriorityEntities(Vector2Int myCandidatePosition, int myLayerIndex) {
+
+        for (int j = 0; j < myLayerIndex; j = j + 1) {
+
+            int superiorSpacing = getSpacingForLayer(j);
+
+            int superiorSectorX = Mathf.FloorToInt((float)myCandidatePosition.x / superiorSpacing);
+            int superiorSectorY = Mathf.FloorToInt((float)myCandidatePosition.y / superiorSpacing);
+
+            for (int neighborX = -1; neighborX <= 1; neighborX = neighborX + 1) {
+
+                for (int neighborY = -1; neighborY <= 1; neighborY = neighborY + 1) {
+
+                    Vector2Int? superiorChosenPosition = getEntityPositionForSector(superiorSectorX + neighborX, superiorSectorY + neighborY, j);
+
+                    if (superiorChosenPosition.HasValue == true) {
+
+                        int distanceX = Mathf.Abs(myCandidatePosition.x - superiorChosenPosition.Value.x);
+                        int distanceY = Mathf.Abs(myCandidatePosition.y - superiorChosenPosition.Value.y);
+
+                        if (Mathf.Max(distanceX, distanceY) < minimumEntitySeparation) {
+
+                            return true;
+
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+
+    }
+
+    // ============================================================
+    // Prediction Helpers
+    // ============================================================
+
+    private int getRotationStepsPrediction(Vector2Int position, TileType type) {
+
+        if (type.randomRotationSteps == false) {
+
+            return 0;
+
+        }
+
+        int hash = position.x * 73856093 ^ position.y * 19349663;
+        System.Random pseudoRandomNumberGenerator = new System.Random(hash);
+
+        return pseudoRandomNumberGenerator.Next(0, 4);
+
+    }
+
+    private Vector2Int rotateOffsetPrediction(Vector2Int offset, int steps) {
+
+        Vector2Int result = offset;
+
+        for (int i = 0; i < steps; i = i + 1) {
+
+            int oldX = result.x;
+            result.x = result.y;
+            result.y = -oldX;
+
+        }
+
+        return result;
+
+    }
+
+    // ============================================================
+    // Entities Helpers
+    // ============================================================
+
+    private int getSpacingForLayer(int layerIndex) {
+
+        switch (layerIndex) {
+
+            case 0: return merchantSpacing;
+            case 1: return goblinSpacing;
+            case 2: return bonfireSpacing;
+            case 3: return chestSpacing;
+            case 4: return slimeSpacing;
+            case 5: return mimicSpacing;
+
+            default: return 10;
+        }
+    }
+
+    private int getSaltForLayer(int layerIndex) {
+
+        switch (layerIndex) {
+
+            case 0: return 1111;
+            case 1: return 2222;
+            case 2: return 3333;
+            case 3: return 4444;
+            case 4: return 5555;
+            case 5: return 6666;
+
+            default: return 9999;
+
+        }
+    }
+
+    private TileType getTileForLayer(Vector2Int position, int layerIndex) {
+
+        BiomeConfig configuration = getBiomeConfigAt(position);
+
+        if (configuration == null) {
+
+            return null;
+
+        }
+
+        switch (layerIndex) {
+
+            case 0: return configuration.specificTraderTile;
+            case 1: return configuration.specificGoblinTile;
+            case 2: return configuration.specificBonfireTile;
+            case 3: return configuration.specificChestTile;
+            case 4: return configuration.specificSlimeTile;
+            case 5: return configuration.specificMimicTile;
+
+            default: return null;
+
+        }
+    }
+
+    public TileType getSlimeTileAt(Vector2Int gridPosition) {
+
+        BiomeConfig configuration = getBiomeConfigAt(gridPosition);
+
+        if (configuration != null) {
+
+            return configuration.specificSlimeTile;
+
+        }
+
+        return null;
+
+    }
+
+    private int getRawBiomeIndexForChunk(Vector2Int chunk) {
+
+        int hash = chunk.x * 73856093 ^ chunk.y * 19349663 ^ seed;
+        System.Random localRandom = new System.Random(hash);
+
+        localRandom.NextDouble();
+        localRandom.NextDouble();
+
+        return localRandom.Next(0, biomes.Length);
+
+    }
+
+    // ============================================================
+    // Random Creators
+    // ============================================================
+
+    private float getPseudoRandom(int x, int y) {
+
+        int hash = x * 73856093 ^ y * 19349663 ^ seed;
+        hash = (hash << 13) ^ hash;
+
+        return (1.0f - ((hash * (hash * hash * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f) * 0.5f + 0.5f;
+
+    }
+
+    private int getFastRandomInt(int seedValue, int minimum, int maximum) {
+
+        uint state = (uint)seedValue;
+
+        state = state ^ (state << 13);
+        state = state ^ (state >> 17);
+        state = state ^ (state << 5);
+
+        ulong range = (ulong)((long)maximum - (long)minimum);
+        uint randomValue = state;
+
+        return (int)(minimum + (long)(randomValue % range));
+
+    }
+
+    // ============================================================
+    // Clear Cache
+    // ============================================================
+
+    public void clearFrameCache() {
+
+        frameDataCache.Clear();
+        waterCache.Clear();
+        enemyLeaderCache.Clear();
+        deterministicSectorCache.Clear();
+
+    }
+
+    public void clearDistantPredictionCache(Vector2Int currentCenter, int safeDistance) {
+
+        keysToRemoveCache.Clear();
+        float safeSquared = safeDistance * safeDistance;
+
+        foreach (Vector2Int position in discoveredGroupSizeCache.Keys) {
+
+            if ((position - currentCenter).sqrMagnitude > safeSquared) {
+
+                keysToRemoveCache.Add(position);
+
+            }
+        }
+
+        foreach (Vector2Int position in keysToRemoveCache) {
+
+            discoveredEnemyTypeCache.Remove(position);
+            discoveredGroupSizeCache.Remove(position);
+
+        }
+
+        keysToRemoveCache.Clear();
+
+        foreach (Vector2Int position in discoveredLeaderCache.Keys) {
+
+            if ((position - currentCenter).sqrMagnitude > safeSquared) {
+
+                keysToRemoveCache.Add(position);
+
+            }
+        }
+
+        foreach (Vector2Int position in keysToRemoveCache) {
+
+            discoveredLeaderCache.Remove(position);
+
+        }
+    }
+}
