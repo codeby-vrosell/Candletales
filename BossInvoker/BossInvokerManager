@@ -1,0 +1,391 @@
+// ============================================================
+// Readme of BossInvokerManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the summoning and tactical placement of biome bosses on the grid. 
+It allows the player to select a valid 3x3 area within the board limits, displays a visual indicator, and handles the arrival sequence before activating the boss AI to fight for the sacred candles.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Controls the boss placement mode and grid highlighting for a 3x3 area.
+- Restricts cursor movement and placement within defined board boundaries.
+- Instantiates the selected boss prefab and manages its falling animation.
+- Disables boss AI during the fall and enables it upon safely landing.
+- Triggers the boss introduction UI once the sequence is complete.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.InputSystem;
+using System.Collections.Generic;
+
+public class BossInvokerManager : MonoBehaviour {
+
+    // ============================================================
+    // Boss Setup
+    // ============================================================
+
+    [Header("Boss Setup")]
+    public List<BossPrefabMapping> bossMappings;
+
+    // ============================================================
+    // Placement Settings
+    // ============================================================
+
+    [Header("Placement Settings")]
+    [ColorUsage(true, true)] public Color placementAreaColor = Color.magenta;
+
+    // ============================================================
+    // Board Limits
+    // ============================================================
+
+    [Header("Board Limits")]
+    public Transform topLeftLimit;
+    public Transform topRightLimit;
+    public Transform bottomLeftLimit;
+    public Transform bottomRightLimit;
+
+    // ============================================================
+    // Cursor & Visuals
+    // ============================================================
+
+    [Header("Cursor Padding")]
+    public float paddingRightX;
+    public float paddingBottomZ;
+
+    [Header("Visuals")]
+    public GameObject placementVisualPrefab;
+    public float visualHeightOffset;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private GameObject currentPlacementVisual;
+    public int bossesKilled;
+    public bool isPlacingBoss { get; private set; } = false;
+    private EnemyID pendingBossID;
+    private HashSet<Vector2Int> current3x3Cells = new HashSet<Vector2Int>();
+    private Vector2Int currentCenterPos = new Vector2Int(-9999, -9999);
+
+    public void startBossPlacement(EnemyID bossID) {
+
+        isPlacingBoss = true;
+        pendingBossID = bossID;
+
+        if (GridHighlighter.Instance != null) {
+
+            GridHighlighter.Instance.interactionsEnabled = false;
+            GridHighlighter.Instance.clearHighlightOnClick();
+
+        }
+
+        if (CursorManager.Instance != null) {
+
+            CursorManager.Instance.hideUICursor();
+
+        }
+
+        if (Camera.main != null && GridManager.Instance != null) {
+
+            Vector3 centerWorldPos = GridManager.Instance.gridToWorldPosition(GridManager.Instance.gridCenter);
+            Vector3 screenPos = Camera.main.WorldToScreenPoint(centerWorldPos);
+
+            Mouse.current.WarpCursorPosition(new Vector2(screenPos.x, screenPos.y));
+
+        }
+
+        currentCenterPos = new Vector2Int(-9999, -9999);
+
+        handlePlacementHover();
+
+        Debug.Log($"Placement mode activated for boss: {bossID}. Select a tile on the board.");
+
+        if (placementVisualPrefab != null && currentPlacementVisual == null) {
+
+            currentPlacementVisual = Instantiate(placementVisualPrefab);
+            currentPlacementVisual.SetActive(false);
+
+        }
+    }
+
+    private void Start() {
+
+        bossesKilled = 0;
+
+    }
+
+    void Update() {
+
+        if (isPlacingBoss == false) {
+
+            return;
+
+        }
+
+        if (BlurPaneles.Instance != null && BlurPaneles.Instance.Visible) {
+
+            return;
+
+        }
+
+        handlePlacementHover();
+
+        if (Input.GetMouseButtonDown(0)) {
+
+            confirmPlacement();
+
+        }
+    }
+
+    private void handlePlacementHover() {
+
+        if (GridManager.Instance == null || GridHighlighter.Instance == null) {
+
+            return;
+
+        }
+
+        Vector2 rawMousePos = Mouse.current.position.ReadValue();
+        Ray ray = Camera.main.ScreenPointToRay(rawMousePos);
+        Plane boardPlane = new Plane(Vector3.up, GridManager.Instance.transform.position);
+
+        if (boardPlane.Raycast(ray, out float distance)) {
+
+            Vector3 worldHit = ray.GetPoint(distance);
+
+            float minX = float.MinValue, maxX = float.MaxValue;
+            float minZ = float.MinValue, maxZ = float.MaxValue;
+
+            if (topLeftLimit != null && bottomRightLimit != null && bottomLeftLimit != null && topRightLimit != null) {
+
+                minX = Mathf.Min(topLeftLimit.position.x, bottomLeftLimit.position.x, topRightLimit.position.x, bottomRightLimit.position.x);
+
+                maxX = Mathf.Max(topLeftLimit.position.x, bottomLeftLimit.position.x, topRightLimit.position.x, bottomRightLimit.position.x) - paddingRightX;
+
+                minZ = Mathf.Min(topLeftLimit.position.z, bottomLeftLimit.position.z, topRightLimit.position.z, bottomRightLimit.position.z) + paddingBottomZ;
+
+                maxZ = Mathf.Max(topLeftLimit.position.z, bottomLeftLimit.position.z, topRightLimit.position.z, bottomRightLimit.position.z);
+
+            }
+
+            float clampedX = Mathf.Clamp(worldHit.x, minX, maxX);
+            float clampedZ = Mathf.Clamp(worldHit.z, minZ, maxZ);
+
+            Vector3 clampedWorldPos = new Vector3(clampedX, GridManager.Instance.transform.position.y, clampedZ);
+            Vector2 clampedScreenPos = Camera.main.WorldToScreenPoint(clampedWorldPos);
+
+            if (CursorManager.Instance != null) {
+
+                CursorManager.Instance.useConstrainedPosition = true;
+                CursorManager.Instance.constrainedPosition = clampedScreenPos;
+
+            }
+
+            Vector2Int rawGridPos = GridManager.Instance.worldToGridPosition(clampedWorldPos);
+
+            int maxWidth = (GridManager.Instance.visibleWidth / 2) - 1;
+            int maxHeight = (GridManager.Instance.visibleHeight / 2) - 1;
+
+            Vector2Int center = GridManager.Instance.gridCenter;
+
+            int finalX = Mathf.Clamp(rawGridPos.x, center.x - maxWidth, center.x + maxWidth);
+            int finalY = Mathf.Clamp(rawGridPos.y, center.y - maxHeight, center.y + maxHeight);
+
+            Vector2Int newCenterPos = new Vector2Int(finalX, finalY);
+
+            if (newCenterPos != currentCenterPos) {
+
+                if (current3x3Cells.Count > 0) {
+
+                    GridHighlighter.Instance.clearCells(current3x3Cells);
+                    current3x3Cells.Clear();
+
+                }
+
+                currentCenterPos = newCenterPos;
+
+                // Evaluate the 3x3 grid around the center position avoiding shorthand operators
+                for (int x = -1; x <= 1; x = x + 1) {
+
+                    for (int y = -1; y <= 1; y = y + 1) {
+
+                        Vector2Int position = new Vector2Int(currentCenterPos.x + x, currentCenterPos.y + y);
+
+                        if (GridManager.Instance.getCells().ContainsKey(position)) {
+
+                            current3x3Cells.Add(position);
+
+                        }
+                    }
+                }
+            }
+
+            if (current3x3Cells.Count > 0) {
+
+                GridHighlighter.Instance.updateAreaInstant(current3x3Cells, false, placementAreaColor);
+
+            }
+
+            if (currentPlacementVisual != null) {
+
+                currentPlacementVisual.SetActive(true);
+
+                Vector3 visualPosition = GridManager.Instance.gridToWorldPosition(currentCenterPos);
+                visualPosition.y = visualPosition.y + visualHeightOffset;
+
+                currentPlacementVisual.transform.position = visualPosition;
+
+            }
+        }
+    }
+
+    private void confirmPlacement() {
+
+        if (DiceManager.Instance != null && (DiceManager.Instance.HasFloatingDice() || DiceManager.Instance.IsRollResolvingPublic())) {
+
+            if (CameraShake.Instance != null) {
+
+                CameraShake.Instance.shakeCamera(2f, 2.0f, 0.1f);
+
+            }
+
+            return;
+
+        }
+
+        isPlacingBoss = false;
+
+        PlayerControllerBase player = Object.FindFirstObjectByType<PlayerControllerBase>();
+
+        if (player != null) {
+
+            player.TemporallyIgnoreClick(0.2f);
+
+        }
+
+        if (currentPlacementVisual != null) {
+
+            Destroy(currentPlacementVisual);
+
+        }
+
+        if (CursorManager.Instance != null) {
+
+            CursorManager.Instance.useConstrainedPosition = false;
+            CursorManager.Instance.showUICursor();
+
+        }
+
+        if (current3x3Cells.Count > 0) {
+
+            GridHighlighter.Instance.clearCells(current3x3Cells);
+            current3x3Cells.Clear();
+
+        }
+
+        if (GridHighlighter.Instance != null) {
+
+            GridHighlighter.Instance.interactionsEnabled = true;
+
+        }
+
+        GameObject prefabToSpawn = null;
+
+        foreach (BossPrefabMapping mapping in bossMappings) {
+
+            if (mapping.bossID == pendingBossID) {
+
+                prefabToSpawn = mapping.bossPrefab;
+                break;
+
+            }
+        }
+
+        if (prefabToSpawn != null) {
+
+            Vector3 spawnPosition = GridManager.Instance.gridToWorldPosition(currentCenterPos);
+            float desiredFallHeight = 15f;
+
+            EntityFaller prefabFaller = prefabToSpawn.GetComponent<EntityFaller>();
+
+            if (prefabFaller != null) {
+
+                desiredFallHeight = prefabFaller.targetPosition.y;
+
+            }
+
+            GameObject bossInstance = Instantiate(prefabToSpawn, spawnPosition, Quaternion.identity);
+            BossBase bossScript = bossInstance.GetComponent<BossBase>();
+            EntityFaller fallerScript = bossInstance.GetComponent<EntityFaller>();
+
+            // Prepare the boss for the fall
+            if (bossScript != null) {
+
+                bossScript.isArriving = true;
+                bossScript.enabled = false; // Disable AI so it doesn't think while falling
+
+            }
+
+            if (fallerScript != null) {
+
+                fallerScript.targetPosition = spawnPosition;
+                bossInstance.transform.position = spawnPosition + Vector3.up * desiredFallHeight;
+
+                fallerScript.fall(() => {
+
+                    // The boss lands, wake up the AI
+                    if (bossScript != null) {
+
+                        bossScript.isArriving = false;
+                        bossScript.initialize(currentCenterPos); // Force the correct grid cell for safety
+                        bossScript.enabled = true; // Enable the AI
+
+                    }
+
+                    if (BossIntroUI.Instance != null) {
+
+                        BossIntroUI.Instance.Show(getBossType(pendingBossID));
+
+                    }
+
+                    Debug.Log($"Boss {pendingBossID} has landed on tile {currentCenterPos}!");
+
+                });
+
+            }
+
+            else {
+
+                // Failsafe: if there is no EntityFaller, wake it up immediately
+                if (bossScript != null) {
+
+                    bossScript.isArriving = false;
+                    bossScript.enabled = true;
+
+                }
+            }
+        }
+    }
+
+    private BossIntroUI.BossType getBossType(EnemyID id) {
+
+        return id switch {
+
+            EnemyID.Turtle => BossIntroUI.BossType.Turtle,
+            EnemyID.Frog => BossIntroUI.BossType.Frog,
+            EnemyID.Wolf => BossIntroUI.BossType.Wolf,
+            EnemyID.Wildboar => BossIntroUI.BossType.WildBoar,
+            EnemyID.Mole => BossIntroUI.BossType.Mole
+
+        };
+    }
+}
