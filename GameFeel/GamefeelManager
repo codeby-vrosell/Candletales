@@ -1,0 +1,72 @@
+// ============================================================
+// Readme of GamefeelManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script is responsible for detecting player mouse interactions with grid entities.
+It casts rays to identify valid targets on specific layers, preparing them to trigger their respective game feel feedback, such as wobbling animations or movement reactions.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Listens for player left-clicks on every frame.
+- Projects a raycast from the main camera to the current mouse position.
+- Filters detected collisions using a predefined layer mask.
+- Retrieves the relevant animation and movement components from the clicked entity.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class GamefeelManager : MonoBehaviour {
+
+    // ============================================================
+    // Raycast Settings
+    // ============================================================
+
+    [Header("Raycast Settings")]
+    public LayerMask allowedLayers;
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private Camera mainCamera;
+
+    private void Awake() {
+
+        mainCamera = Camera.main;
+
+    }
+
+    private void Update() {
+
+        handleClickRaycast();
+
+    }
+
+    private void handleClickRaycast() {
+
+        bool isMouseClicked = Input.GetMouseButtonDown(0);
+
+        if (isMouseClicked == true) {
+
+            Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+
+            bool hitValidTarget = Physics.Raycast(ray, out RaycastHit hit, 1000f, allowedLayers);
+
+            if (hitValidTarget == true) {
+
+                EntityAnimator entityAnimator = hit.collider.GetComponentInParent<EntityAnimator>();
+                BaseMovement baseMovement = hit.collider.GetComponentInParent<BaseMovement>();
+
+            }
+        }
+    }
+}
