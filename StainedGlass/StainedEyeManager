@@ -1,0 +1,140 @@
+// ============================================================
+// Readme of StainedEyeManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the interactive pupil movement for the Stained Eye entity. 
+It tracks the player's mouse cursor in world space to create a "following" effect within a constrained radius, and triggers a jittery centering animation when the entity is destroyed.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Calculates the mouse cursor's world position relative to the camera.
+- Moves the eye's pupil towards the mouse while constraining it to a maximum radius.
+- Interpolates the pupil's local position for smooth tracking.
+- Executes an erratic jitter and final centering sequence upon the entity's death.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class StainedEyeManager : MonoBehaviour {
+
+    // ============================================================
+    // Eye Settings
+    // ============================================================
+
+    [Header("Eye Settings")]
+    public float maximumRadius;
+    public float followSpeed;
+
+    // ============================================================
+    // Death Erratic Settings
+    // ============================================================
+
+    [Header("Death Erratic Settings")]
+    public float erraticDuration;
+    public float erraticSpeed;
+    public float erraticMagnitude;
+
+    // ============================================================
+    // Death Center Settings
+    // ============================================================
+
+    [Header("Death Center Settings")]
+    public float centerSpeed;
+    public Vector3 exactCenterPosition = new Vector3(0f, 0f, -0.001f);
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Vector3 startLocalPosition;
+    private Vector3 currentErraticTarget;
+    private Camera mainCamera;
+
+    private bool isDead = false;
+    private float deathTimer = 0f;
+    private float jitterTimer = 0f;
+
+    private void Start() {
+
+        startLocalPosition = transform.localPosition;
+        mainCamera = Camera.main;
+
+    }
+
+    private void Update() {
+
+        if (mainCamera == null) {
+
+            return;
+
+        }
+
+        if (isDead == false) {
+
+            float distanceToScreen = mainCamera.WorldToScreenPoint(transform.position).z;
+
+            Vector3 mouseScreenPosition = new Vector3(Input.mousePosition.x, Input.mousePosition.y, distanceToScreen);
+            Vector3 mouseWorldPosition = mainCamera.ScreenToWorldPoint(mouseScreenPosition);
+
+            Vector3 targetLocalPosition = transform.parent.InverseTransformPoint(mouseWorldPosition);
+            targetLocalPosition.z = startLocalPosition.z;
+
+            Vector3 offset = targetLocalPosition - startLocalPosition;
+
+            if (offset.magnitude > maximumRadius) {
+
+                offset = offset.normalized * maximumRadius;
+
+            }
+
+            Vector3 finalLocalPosition = startLocalPosition + offset;
+            transform.localPosition = Vector3.Lerp(transform.localPosition, finalLocalPosition, Time.deltaTime * followSpeed);
+
+        }
+
+        else {
+
+            deathTimer = deathTimer + Time.unscaledDeltaTime;
+
+            if (deathTimer < erraticDuration) {
+
+                jitterTimer = jitterTimer + Time.unscaledDeltaTime;
+
+                if (jitterTimer > 0.05f) {
+
+                    jitterTimer = 0f;
+                    Vector2 randomOffset = Random.insideUnitCircle * erraticMagnitude;
+                    currentErraticTarget = new Vector3(exactCenterPosition.x + randomOffset.x, exactCenterPosition.y + randomOffset.y, exactCenterPosition.z);
+
+                }
+
+                transform.localPosition = Vector3.Lerp(transform.localPosition, currentErraticTarget, Time.unscaledDeltaTime * erraticSpeed);
+
+            }
+
+            else {
+
+                transform.localPosition = Vector3.Lerp(transform.localPosition, exactCenterPosition, Time.unscaledDeltaTime * centerSpeed);
+
+            }
+        }
+    }
+
+    public void forceCenterEye() {
+
+        isDead = true;
+        deathTimer = 0f;
+        jitterTimer = 0f;
+        currentErraticTarget = transform.localPosition;
+
+    }
+}
