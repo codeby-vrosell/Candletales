@@ -1,0 +1,1757 @@
+// ============================================================
+// Readme of GridManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script is the core manager for the game's infinite modular board. 
+It orchestrates the instantiation, mapping, and lifecycle of every cell, including complex multi-tile obstacles, enemies, and interactive entities, synchronizing closely with the BiomeGenerator to build the world dynamically.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Maintains the central dictionary mapping 2D grid coordinates to their respective Cell data.
+- Handles the physical instantiation and destruction of grid visuals as the player moves.
+- Resolves complex multi-tile obstacle logic, ensuring parent and ghost-child tiles link correctly without overlapping.
+- Registers enemies and entities to the global state manager upon creation.
+- Provides an API for footprint prediction, coordinate conversion (World to Grid), and direct cell queries.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class GridManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static GridManager Instance;
+
+    // ============================================================
+    // Grid Settings
+    // ============================================================
+
+    [Header("Grid Settings")]
+    public int visibleWidth;
+    public int visibleHeight;
+    public float cellSize;
+    public const int maxMultiTileObstacleSize = 7;
+
+    public Vector2Int gridCenter { get; private set; } = Vector2Int.zero;
+
+    // ============================================================
+    // Internal Collections & Caches
+    // ============================================================
+
+    private Dictionary<Vector2Int, Cell> cells = new Dictionary<Vector2Int, Cell>();
+    public Dictionary<int, Cell> colliderToCellMap = new Dictionary<int, Cell>();
+    private Dictionary<GameObject, GameObject> blueprintCache = new Dictionary<GameObject, GameObject>();
+    private HashSet<Vector2Int> reservedPositions = new HashSet<Vector2Int>();
+    private Dictionary<Vector2Int, bool> obstacleValidationCache = new Dictionary<Vector2Int, bool>();
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private PlayerControllerBase playerController;
+    private GridAnimations gridAnimations;
+    private GridHighlighter gridHighlighter;
+    private BiomeGenerator biomeGenerator;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private bool lastStopCenterState = false;
+    private float slimeSpawnDelay = 0.5f;
+
+    // ============================================================
+    // Public API
+    // ============================================================
+
+    public bool tryGetCells(Vector2Int position, out Cell targetCell) {
+
+        return cells.TryGetValue(position, out targetCell);
+
+    }
+
+    public Dictionary<Vector2Int, Cell> getCells() {
+
+        return cells;
+
+    }
+
+    void Awake() {
+
+        biomeGenerator = GetComponent<BiomeGenerator>();
+        gridHighlighter = GetComponent<GridHighlighter>();
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(this.gameObject);
+
+        }
+    }
+
+    public void initializeGrid() {
+
+        generateGrid();
+
+        if (gridAnimations == null) {
+
+            gridAnimations = GetComponent<GridAnimations>();
+
+        }
+
+        gridAnimations.playSpawnGridAnimation(Vector2Int.zero);
+
+    }
+
+    void Update() {
+
+        findPlayer();
+        automaticCenter();
+
+    }
+
+    void OnDestroy() {
+
+        foreach (var blueprint in blueprintCache.Values) {
+
+            if (blueprint != null) {
+
+                Destroy(blueprint);
+
+            }
+        }
+
+        blueprintCache.Clear();
+
+    }
+
+    // ============================================================
+    // Core Generation
+    // ============================================================
+
+    private void generateGrid() {
+
+        biomeGenerator.clearFrameCache();
+        obstacleValidationCache.Clear();
+        cells.Clear();
+        reservedPositions.Clear();
+        colliderToCellMap.Clear();
+
+        clearVisuals();
+
+        int halfWidth = visibleWidth / 2;
+        int halfHeight = visibleHeight / 2;
+
+        for (int x = -halfWidth; x <= halfWidth; x = x + 1) {
+
+            for (int y = -halfHeight; y <= halfHeight; y = y + 1) {
+
+                createCellAt(new Vector2Int(x, y));
+
+            }
+        }
+    }
+
+    private void createCellAt(Vector2Int gridPosition) {
+
+        BiomeCellData currentCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+
+        bool isObstacleDestroyed = GridStateManager.Instance.isObstacleDestroyedAt(gridPosition);
+        bool isEntityDestroyed = GridStateManager.Instance.isEntityDestroyedAt(gridPosition);
+
+        if (isObstacleDestroyed == true || isEntityDestroyed == true) {
+
+            currentCellData.obstacleType = null;
+            currentCellData.enemyType = null;
+            currentCellData.entityType = null;
+
+        }
+
+        TileType logicalTileType = null;
+        GameObject specificPartVisual = null;
+        bool isGhostChild = false;
+        TileType parentTypeFound = null;
+        Vector2Int anchorPosition = Vector2Int.zero;
+        int childIndex = -1;
+        MultiTileLayer detectedLayer = MultiTileLayer.None;
+
+        bool hasParentNeighbor = checkForParentNeighbor(gridPosition, out parentTypeFound, out anchorPosition, out childIndex);
+
+        if (hasParentNeighbor == true) {
+
+            bool isParentValid = false;
+            bool isParentObstacleDestroyed = GridStateManager.Instance.isObstacleDestroyedAt(gridPosition);
+
+            if (isParentObstacleDestroyed == true) {
+
+                isParentValid = false;
+
+            }
+
+            else {
+
+                isParentValid = true;
+
+            }
+
+            if (isParentValid == true) {
+
+                Vector2Int logicalOffset = gridPosition - anchorPosition;
+                int rotationSteps = getRotationStepsForPosition(anchorPosition, parentTypeFound);
+                int counterRotation = (4 - rotationSteps) % 4;
+                Vector2Int originalOffset = rotateOffset(logicalOffset, counterRotation);
+
+                detectedLayer = parentTypeFound.getLayerAt(originalOffset);
+
+                if (detectedLayer == MultiTileLayer.multiTileBorder) {
+
+                    isGhostChild = false;
+
+                }
+
+                else {
+
+                    logicalTileType = parentTypeFound;
+                    isGhostChild = true;
+                    specificPartVisual = extractSpecificPartFromPrefab(parentTypeFound, anchorPosition, gridPosition, childIndex);
+
+                    if (detectedLayer == MultiTileLayer.noWalkable) {
+
+                        reservedPositions.Add(gridPosition);
+
+                    }
+
+                    currentCellData.obstacleType = null;
+                    currentCellData.entityType = null;
+
+                }
+            }
+        }
+
+        if (isGhostChild == false) {
+
+            if (currentCellData.obstacleType != null) {
+
+                bool isLocallyWater = false;
+
+                if (currentCellData.groundType != null && currentCellData.groundType.isWater == true) {
+
+                    isLocallyWater = true;
+
+                }
+
+                bool isValidLocation = true;
+
+                if (currentCellData.obstacleType.mustSpawnOnWater == true && isLocallyWater == false) {
+
+                    isValidLocation = false;
+
+                }
+
+                else if (currentCellData.obstacleType.canSpawnOnWater == false && currentCellData.obstacleType.mustSpawnOnWater == false && isLocallyWater == true) {
+
+                    isValidLocation = false;
+
+                }
+
+                if (isValidLocation == true) {
+
+                    if (currentCellData.obstacleType.isMultiTile == true) {
+
+                        bool isValidObstacle = isObstacleValid(gridPosition, currentCellData.obstacleType);
+
+                        if (isValidObstacle == true) {
+
+                            logicalTileType = currentCellData.obstacleType;
+                            reserveCellsForObjectRotated(gridPosition, currentCellData.obstacleType);
+
+                            int rotationSteps = getRotationStepsForPosition(gridPosition, currentCellData.obstacleType);
+                            detectedLayer = currentCellData.obstacleType.getLayerAt(Vector2Int.zero);
+
+                            if (currentCellData.obstacleType.multiTileShape != null) {
+
+                                int visualChildIndex = 0;
+
+                                for (int i = 0; i < currentCellData.obstacleType.multiTileShape.Count; i = i + 1) {
+
+                                    Vector2Int offset = currentCellData.obstacleType.multiTileShape[i].offset;
+
+                                    if (offset == Vector2Int.zero) {
+
+                                        continue;
+
+                                    }
+
+                                    Vector2Int rotatedOffset = rotateOffset(offset, rotationSteps);
+                                    Vector2Int childGridPosition = gridPosition + rotatedOffset;
+
+                                    bool isChildObstacleDestroyed = GridStateManager.Instance.isObstacleDestroyedAt(childGridPosition);
+
+                                    if (isChildObstacleDestroyed == true) {
+
+                                        visualChildIndex = visualChildIndex + 1;
+                                        continue;
+
+                                    }
+
+                                    bool cellExists = cells.TryGetValue(childGridPosition, out Cell existingChildCell);
+
+                                    if (cellExists == true) {
+
+                                        if (existingChildCell.tileType != currentCellData.obstacleType) {
+
+                                            MultiTileLayer childLayer = currentCellData.obstacleType.multiTileShape[i].layer;
+
+                                            if (childLayer == MultiTileLayer.multiTileBorder) {
+
+                                                continue;
+
+                                            }
+
+                                            existingChildCell.tileType = currentCellData.obstacleType;
+                                            existingChildCell.layerType = childLayer;
+
+                                            bool isBlocked = false;
+
+                                            if (childLayer == MultiTileLayer.noWalkable || childLayer == MultiTileLayer.forceEnemySpawn) {
+
+                                                isBlocked = true;
+
+                                            }
+
+                                            if (isBlocked == true) {
+
+                                                existingChildCell.isWalkable = false;
+
+                                            }
+
+                                            else {
+
+                                                existingChildCell.isWalkable = true;
+
+                                            }
+
+                                            if (isBlocked == true) {
+
+                                                reservedPositions.Add(childGridPosition);
+
+                                            }
+
+                                            if (existingChildCell.visual != null) {
+
+                                                GameObject missingPart = extractSpecificPartFromPrefab(currentCellData.obstacleType, gridPosition, childGridPosition, visualChildIndex);
+
+                                                if (missingPart != null) {
+
+                                                    attachObstacleToCell(existingChildCell, existingChildCell.visual, missingPart);
+
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    visualChildIndex = visualChildIndex + 1;
+
+                                }
+                            }
+                        }
+
+                        else {
+
+                            currentCellData.obstacleType = null;
+                            logicalTileType = currentCellData.groundType;
+
+                        }
+                    }
+
+                    else {
+
+                        logicalTileType = currentCellData.obstacleType;
+
+                    }
+                }
+
+                else {
+
+                    currentCellData.obstacleType = null;
+                    logicalTileType = currentCellData.groundType;
+
+                }
+            }
+
+            else {
+
+                logicalTileType = currentCellData.groundType;
+
+            }
+        }
+
+        Cell targetCell = new Cell(gridPosition, logicalTileType);
+
+        if (logicalTileType != null && logicalTileType.isMultiTile == true) {
+
+            targetCell.layerType = detectedLayer;
+            bool isBlocked = false;
+
+            if (detectedLayer == MultiTileLayer.noWalkable) {
+
+                isBlocked = true;
+
+            }
+
+            if (isBlocked == true) {
+
+                targetCell.isWalkable = false;
+
+            }
+
+            else {
+
+                targetCell.isWalkable = true;
+
+            }
+
+            if (isBlocked == true) {
+
+                reservedPositions.Add(gridPosition);
+
+            }
+        }
+
+        else {
+
+            bool isReserved = reservedPositions.Contains(gridPosition);
+            bool isNotWalkable = false;
+
+            if (logicalTileType != null && logicalTileType.isWalkable == false) {
+
+                isNotWalkable = true;
+
+            }
+
+            if (isReserved == true || isNotWalkable == true) {
+
+                targetCell.isWalkable = false;
+
+            }
+        }
+
+        if (currentCellData.groundType != null && currentCellData.groundType.prefab != null) {
+
+            Vector3 worldPosition = gridToWorldPosition(gridPosition);
+            GameObject groundObject = Instantiate(currentCellData.groundType.prefab, worldPosition, Quaternion.identity, transform);
+
+            groundObject.name = $"Tile[{gridPosition.x}_{gridPosition.y}]";
+            Collider cellCollider = groundObject.GetComponent<Collider>();
+
+            if (cellCollider != null) {
+
+                colliderToCellMap[cellCollider.GetInstanceID()] = targetCell;
+
+            }
+
+            if (isGhostChild == true && specificPartVisual != null) {
+
+                attachObstacleToCell(targetCell, groundObject, specificPartVisual);
+
+            }
+
+            else if (isGhostChild == false && logicalTileType != null && logicalTileType == currentCellData.obstacleType) {
+
+                if (logicalTileType.isMultiTile == true && logicalTileType.prefab != null) {
+
+                    GameObject anchorPart = extractSpecificPartFromPrefab(logicalTileType, gridPosition, gridPosition, -1);
+
+                    if (anchorPart != null) {
+
+                        attachObstacleToCell(targetCell, groundObject, anchorPart);
+
+                    }
+                }
+
+                else if (logicalTileType.isMultiTile == false && logicalTileType.prefab != null) {
+
+                    GameObject standardObstacle = Instantiate(logicalTileType.prefab);
+                    applyRotationToTransform(standardObstacle.transform, logicalTileType, gridPosition);
+                    attachObstacleToCell(targetCell, groundObject, standardObstacle);
+
+                }
+            }
+
+            TileType biomeSuggestedEnemy = null;
+            TileType enemyToSpawn = null;
+
+            if (targetCell.layerType == MultiTileLayer.forceEnemySpawn) {
+
+                biomeSuggestedEnemy = biomeGenerator.getForcedEnemyAt(gridPosition);
+
+            }
+
+            else if (targetCell.isWalkable == true && targetCell.layerType == MultiTileLayer.None) {
+
+                biomeSuggestedEnemy = currentCellData.enemyType;
+
+            }
+
+            if (GridStateManager.Instance != null) {
+
+                enemyToSpawn = GridStateManager.Instance.getEnemySpawnAt(gridPosition, biomeSuggestedEnemy);
+
+            }
+
+            else {
+
+                enemyToSpawn = biomeSuggestedEnemy;
+
+            }
+
+            if (enemyToSpawn != null && enemyToSpawn.prefab != null) {
+
+                GameObject enemyObject = Instantiate(enemyToSpawn.prefab);
+                enemyObject.name = $"Enemy_{enemyToSpawn.tileName}";
+
+                enemyObject.transform.SetParent(groundObject.transform, false);
+                enemyObject.transform.localPosition = Vector3.zero;
+
+                if (enemyToSpawn.useRandomRotation == true) {
+
+                    applyRotationToTransform(enemyObject.transform, enemyToSpawn, gridPosition);
+
+                }
+
+                else {
+
+                    enemyObject.transform.localRotation = Quaternion.identity;
+
+                }
+
+                EnemyBase enemyScript = enemyObject.GetComponentInChildren<EnemyBase>();
+
+                if (enemyScript != null) {
+
+                    if (GridStateManager.Instance != null) {
+
+                        EnemyState existingEnemyState = GridStateManager.Instance.getEnemyStateAt(gridPosition);
+
+                        if (existingEnemyState != null) {
+
+                            enemyScript.originalSpawnPos = existingEnemyState.originalPos;
+                            enemyScript.currentGridPos = gridPosition;
+
+                        }
+                        else {
+
+                            enemyScript.originalSpawnPos = gridPosition;
+                            enemyScript.currentGridPos = gridPosition;
+                            GridStateManager.Instance.registerEnemyAt(gridPosition, gridPosition, enemyToSpawn);
+
+                        }
+                    }
+                }
+
+                if (enemyToSpawn.isWalkable == false) {
+
+                    targetCell.isWalkable = false;
+                    reservedPositions.Add(gridPosition);
+
+                }
+            }
+
+            if (targetCell.layerType == MultiTileLayer.forceEntitySpawn) {
+
+                currentCellData.entityType = biomeGenerator.getForcedEntityAt(gridPosition);
+
+            }
+
+            if (currentCellData.entityType != null && currentCellData.entityType.prefab != null) {
+
+                GameObject entityObject = Instantiate(currentCellData.entityType.prefab);
+                entityObject.name = $"Entity_{currentCellData.entityType.tileName}";
+
+                entityObject.transform.SetParent(groundObject.transform, false);
+                entityObject.transform.localPosition = Vector3.zero;
+
+                if (currentCellData.entityType.useRandomRotation == true) {
+
+                    applyRotationToTransform(entityObject.transform, currentCellData.entityType, gridPosition);
+
+                }
+
+                else {
+
+                    entityObject.transform.localRotation = Quaternion.identity;
+
+                }
+
+                if (currentCellData.entityType.entityType == EntityLayer.dynamicEntity) {
+
+                    EnemyBase dynamicEntityScript = entityObject.GetComponentInChildren<EnemyBase>();
+
+                    if (dynamicEntityScript != null) {
+
+                        if (GridStateManager.Instance != null) {
+
+                            EnemyState existingEntityState = GridStateManager.Instance.getEnemyStateAt(gridPosition);
+
+                            if (existingEntityState != null) {
+
+                                dynamicEntityScript.originalSpawnPos = existingEntityState.originalPos;
+                                dynamicEntityScript.currentGridPos = gridPosition;
+
+                            }
+
+                            else {
+
+                                dynamicEntityScript.originalSpawnPos = gridPosition;
+                                dynamicEntityScript.currentGridPos = gridPosition;
+                                GridStateManager.Instance.registerEnemyAt(gridPosition, gridPosition, currentCellData.entityType);
+
+                            }
+                        }
+                    }
+                }
+
+                if (currentCellData.entityType.isWalkable == false) {
+
+                    targetCell.isWalkable = false;
+                    targetCell.occupiedByEntity = true;
+                    reservedPositions.Add(gridPosition);
+
+                }
+            }
+
+            groundObject.SetActive(false);
+            targetCell.visual = groundObject;
+
+        }
+
+        cells[gridPosition] = targetCell;
+
+        if (WaypointManager.Instance != null) {
+
+            WaypointManager.Instance.restoreWaypointVisual(gridPosition, targetCell.visual);
+
+        }
+    }
+
+    private void createCleanCellAt(Vector2Int gridPosition) {
+
+        BiomeCellData currentCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+        TileType floorType = currentCellData.groundType;
+
+        Cell targetCell = new Cell(gridPosition, floorType);
+        targetCell.layerType = MultiTileLayer.None;
+        targetCell.isWalkable = true;
+
+        if (floorType != null && floorType.prefab != null) {
+
+            Vector3 worldPosition = gridToWorldPosition(gridPosition);
+            GameObject groundObject = Instantiate(floorType.prefab, worldPosition, Quaternion.identity, transform);
+            groundObject.name = $"Tile[{gridPosition.x}_{gridPosition.y}]_Clean";
+
+            Collider cellCollider = groundObject.GetComponent<Collider>();
+
+            if (cellCollider != null) {
+
+                colliderToCellMap[cellCollider.GetInstanceID()] = targetCell;
+
+            }
+
+            targetCell.visual = groundObject;
+
+        }
+
+        cells[gridPosition] = targetCell;
+
+        if (WaypointManager.Instance != null) {
+
+            WaypointManager.Instance.restoreWaypointVisual(gridPosition, targetCell.visual);
+
+        }
+    }
+
+    public void replaceStolenCell(Vector2Int gridPosition) {
+
+        bool hasOldCell = cells.TryGetValue(gridPosition, out Cell oldCell);
+
+        if (hasOldCell == true) {
+
+            GridHighlighter.Instance.forceClearVisual(oldCell.visual);
+
+            // Unlink the old visual so the Boss can take it away smoothly
+            oldCell.visual = null;
+            cells.Remove(gridPosition);
+
+            // Register the logical destruction of whatever was previously on that tile
+            if (GridStateManager.Instance != null) {
+
+                GridStateManager.Instance.registerObstacleDestructionAt(gridPosition);
+
+            }
+
+            createCleanCellAt(gridPosition);
+
+            // Refresh the pathing and hover visuals
+            if (gridHighlighter != null) {
+
+                gridHighlighter.refreshHoverAndPath();
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Rotation & Offset Helpers
+    // ============================================================
+
+    private int getRotationStepsForPosition(Vector2Int position, TileType tileTypeData) {
+
+        if (tileTypeData.randomRotationSteps == false) {
+
+            return 0;
+
+        }
+
+        int customHash = position.x * 73856093 ^ position.y * 19349663;
+        System.Random pseudoRandomNumberGenerator = new System.Random(customHash);
+
+        return pseudoRandomNumberGenerator.Next(0, 4);
+
+    }
+
+    private Vector2Int rotateOffset(Vector2Int originalOffset, int rotationSteps) {
+
+        Vector2Int resultOffset = originalOffset;
+
+        for (int i = 0; i < rotationSteps; i = i + 1) {
+
+            int oldX = resultOffset.x;
+            resultOffset.x = resultOffset.y;
+            resultOffset.y = -oldX;
+
+        }
+
+        return resultOffset;
+
+    }
+
+    // ============================================================
+    // Multi-Tile Logic: Parents / Children (FIXED)
+    // ============================================================
+
+    private bool checkForParentNeighbor(Vector2Int myPosition, out TileType parentTypeFound, out Vector2Int anchorPosition, out int targetChildIndex) {
+
+        parentTypeFound = null;
+        anchorPosition = Vector2Int.zero;
+        targetChildIndex = -1;
+
+        for (int x = -maxMultiTileObstacleSize; x <= maxMultiTileObstacleSize; x = x + 1) {
+
+            for (int y = -maxMultiTileObstacleSize; y <= maxMultiTileObstacleSize; y = y + 1) {
+
+                if (x == 0 && y == 0) {
+
+                    continue;
+
+                }
+
+                Vector2Int potentialAnchorPosition = myPosition + new Vector2Int(x, y);
+                BiomeCellData neighborData = biomeGenerator.getBiomeDataAt(potentialAnchorPosition);
+
+                if (neighborData.obstacleType != null && neighborData.obstacleType.isMultiTile == true) {
+
+                    TileType obstacleTypeData = neighborData.obstacleType;
+                    int rotationSteps = getRotationStepsForPosition(potentialAnchorPosition, obstacleTypeData);
+                    var shapeData = obstacleTypeData.multiTileShape;
+                    int visualChildIndex = 0;
+
+                    for (int i = 0; i < shapeData.Count; i = i + 1) {
+
+                        if (shapeData[i].offset == Vector2Int.zero) {
+
+                            continue;
+
+                        }
+
+                        Vector2Int rotatedOffset = rotateOffset(shapeData[i].offset, rotationSteps);
+                        Vector2Int childWorldPosition = potentialAnchorPosition + rotatedOffset;
+
+                        if (childWorldPosition == myPosition) {
+
+                            if (isObstacleValid(potentialAnchorPosition, obstacleTypeData) == true) {
+
+                                parentTypeFound = obstacleTypeData;
+                                anchorPosition = potentialAnchorPosition;
+                                targetChildIndex = visualChildIndex;
+
+                                return true;
+
+                            }
+                        }
+
+                        visualChildIndex = visualChildIndex + 1;
+
+                    }
+                }
+            }
+        }
+
+        return false;
+
+    }
+
+    private GameObject extractSpecificPartFromPrefab(TileType tileTypeData, Vector2Int anchorPosition, Vector2Int myGridPosition, int ignoredIndex) {
+
+        GameObject masterBlueprint;
+
+        if (tileTypeData.prefab == null) {
+
+            Debug.LogError($"[CRITICAL ERROR] The prefab of TileType '{tileTypeData.tileName}' has been destroyed.");
+            return null;
+
+        }
+
+        bool hasBlueprintCache = blueprintCache.TryGetValue(tileTypeData.prefab, out masterBlueprint);
+
+        if (hasBlueprintCache == false) {
+
+            masterBlueprint = Instantiate(tileTypeData.prefab);
+            masterBlueprint.name = $"Blueprint_{tileTypeData.tileName}";
+            masterBlueprint.transform.position = new Vector3(0, -100, 0);
+            masterBlueprint.SetActive(false);
+
+            blueprintCache.Add(tileTypeData.prefab, masterBlueprint);
+
+        }
+
+        Vector2Int logicalOffset = myGridPosition - anchorPosition;
+        int rotationSteps = getRotationStepsForPosition(anchorPosition, tileTypeData);
+        int counterRotation = (4 - rotationSteps) % 4;
+
+        Vector2Int originalPrefabOffset = rotateOffset(logicalOffset, counterRotation);
+        GameObject targetPartBlueprint = null;
+        float distanceTolerance = 0.1f;
+
+        if (originalPrefabOffset == Vector2Int.zero) {
+
+            foreach (Transform childTransform in masterBlueprint.transform) {
+
+                if (Vector3.Distance(childTransform.localPosition, Vector3.zero) < distanceTolerance) {
+
+                    targetPartBlueprint = childTransform.gameObject;
+                    break;
+
+                }
+            }
+        }
+
+        else {
+
+            Vector3 targetLocalPosition = new Vector3(originalPrefabOffset.x * cellSize, 0f, originalPrefabOffset.y * cellSize);
+
+            foreach (Transform childTransform in masterBlueprint.transform) {
+
+                Vector3 childPositionFlattened = new Vector3(childTransform.localPosition.x, 0f, childTransform.localPosition.z);
+
+                if (Vector3.Distance(childPositionFlattened, targetLocalPosition) < distanceTolerance) {
+
+                    targetPartBlueprint = childTransform.gameObject;
+                    break;
+
+                }
+            }
+        }
+
+        if (targetPartBlueprint == null) {
+
+            return null;
+
+        }
+
+        GameObject newPartInstance = Instantiate(targetPartBlueprint);
+        newPartInstance.SetActive(true);
+        newPartInstance.transform.position = Vector3.zero;
+
+        Quaternion originalLocalRotation = targetPartBlueprint.transform.localRotation;
+
+        if (tileTypeData.randomRotationSteps == true) {
+
+            int currentSteps = getRotationStepsForPosition(anchorPosition, tileTypeData);
+            newPartInstance.transform.localRotation = Quaternion.Euler(0f, currentSteps * 90f, 0f) * originalLocalRotation;
+
+        }
+
+        else if (tileTypeData.randomRotationFree == true) {
+
+            applyRotationToTransform(newPartInstance.transform, tileTypeData, anchorPosition);
+
+        }
+
+        else {
+
+            newPartInstance.transform.localRotation = originalLocalRotation;
+
+        }
+
+        return newPartInstance;
+
+    }
+
+    private void reserveCellsForObjectRotated(Vector2Int anchorPosition, TileType tileTypeData) {
+
+        if (tileTypeData.multiTileShape == null) {
+
+            return;
+
+        }
+
+        int rotationSteps = getRotationStepsForPosition(anchorPosition, tileTypeData);
+
+        foreach (MultiTileData shapeData in tileTypeData.multiTileShape) {
+
+            if (shapeData.layer == MultiTileLayer.noWalkable) {
+
+                Vector2Int rotatedOffset = rotateOffset(shapeData.offset, rotationSteps);
+                Vector2Int targetPosition = anchorPosition + rotatedOffset;
+
+                reservedPositions.Add(targetPosition);
+
+            }
+        }
+    }
+
+    private int getPositionPriority(Vector2Int position) {
+
+        return position.x * 73856093 ^ position.y * 19349663;
+
+    }
+
+    public bool isObstacleValid(Vector2Int anchorPosition, TileType tileTypeData) {
+
+        bool hasValidationCache = obstacleValidationCache.TryGetValue(anchorPosition, out bool cachedResult);
+
+        if (hasValidationCache == true) {
+
+            return cachedResult;
+
+        }
+
+        bool validationResult = calculateObstacleValidity(anchorPosition, tileTypeData);
+        obstacleValidationCache[anchorPosition] = validationResult;
+
+        return validationResult;
+
+    }
+
+    private bool calculateObstacleValidity(Vector2Int anchorPosition, TileType tileTypeData) {
+
+        if (tileTypeData.boundingRadius < 0f) {
+
+            tileTypeData.calculateBoundingRadius();
+
+        }
+
+        List<MultiTileData> myShapeParts = new List<MultiTileData>();
+        myShapeParts.Add(new MultiTileData { offset = Vector2Int.zero, layer = MultiTileLayer.None });
+
+        if (tileTypeData.multiTileShape != null) {
+
+            myShapeParts.AddRange(tileTypeData.multiTileShape);
+
+        }
+
+        int myRotationSteps = getRotationStepsForPosition(anchorPosition, tileTypeData);
+        int myPriorityWeight = getPositionPriority(anchorPosition);
+
+        foreach (var shapePart in myShapeParts) {
+
+            Vector2Int rotatedOffset = rotateOffset(shapePart.offset, myRotationSteps);
+            Vector2Int targetWorldPosition = anchorPosition + rotatedOffset;
+
+            float maximumDistanceToCenter = Mathf.Max(Mathf.Abs(targetWorldPosition.x), Mathf.Abs(targetWorldPosition.y));
+
+            if (maximumDistanceToCenter <= biomeGenerator.obstaclesSafeZone) {
+
+                return false;
+
+            }
+
+            BiomeCellData partCellData = biomeGenerator.getBiomeDataAt(targetWorldPosition);
+            bool isPartWater = false;
+
+            if (partCellData.groundType != null && partCellData.groundType.isWater == true) {
+
+                isPartWater = true;
+
+            }
+
+            if (tileTypeData.mustSpawnOnWater == true) {
+
+                if (isPartWater == false) {
+
+                    return false;
+
+                }
+            }
+
+            else if (tileTypeData.canSpawnOnWater == false) {
+
+                if (isPartWater == true) {
+
+                    return false;
+
+                }
+            }
+
+            if (partCellData.groundType != null && partCellData.groundType.isWater == true && tileTypeData.canSpawnOnWater == false && tileTypeData.mustSpawnOnWater == false) {
+
+                return false;
+
+            }
+        }
+
+        float safeDistanceRequired = tileTypeData.boundingRadius + maxMultiTileObstacleSize + 1.5f;
+        float safeDistanceSquared = safeDistanceRequired * safeDistanceRequired;
+
+        for (int x = -maxMultiTileObstacleSize; x <= maxMultiTileObstacleSize; x = x + 1) {
+
+            for (int y = -maxMultiTileObstacleSize; y <= maxMultiTileObstacleSize; y = y + 1) {
+
+                if (x == 0 && y == 0) {
+
+                    continue;
+
+                }
+
+                float currentDistanceSquared = x * x + y * y;
+
+                if (currentDistanceSquared > safeDistanceSquared) {
+
+                    continue;
+
+                }
+
+                Vector2Int potentialEnemyAnchorPosition = anchorPosition + new Vector2Int(x, y);
+                BiomeCellData enemyCellData = biomeGenerator.getBiomeDataAt(potentialEnemyAnchorPosition);
+
+                if (enemyCellData.obstacleType != null && enemyCellData.obstacleType.isMultiTile == true) {
+
+                    TileType enemyObstacleType = enemyCellData.obstacleType;
+
+                    if (enemyObstacleType.boundingRadius < 0f) {
+
+                        enemyObstacleType.calculateBoundingRadius();
+
+                    }
+
+                    float combinedBoundingRadius = tileTypeData.boundingRadius + enemyObstacleType.boundingRadius;
+
+                    if (currentDistanceSquared > (combinedBoundingRadius * combinedBoundingRadius)) {
+
+                        continue;
+
+                    }
+
+                    int enemyRotationSteps = getRotationStepsForPosition(potentialEnemyAnchorPosition, enemyObstacleType);
+                    List<MultiTileData> enemyShapeParts = new List<MultiTileData>();
+
+                    enemyShapeParts.Add(new MultiTileData { offset = Vector2Int.zero, layer = MultiTileLayer.None });
+
+                    if (enemyObstacleType.multiTileShape != null) {
+
+                        enemyShapeParts.AddRange(enemyObstacleType.multiTileShape);
+
+                    }
+
+                    foreach (var enemyPartData in enemyShapeParts) {
+
+                        Vector2Int enemyTargetPosition = potentialEnemyAnchorPosition + rotateOffset(enemyPartData.offset, enemyRotationSteps);
+
+                        foreach (var myPartData in myShapeParts) {
+
+                            Vector2Int myTargetPosition = anchorPosition + rotateOffset(myPartData.offset, myRotationSteps);
+
+                            if (enemyTargetPosition == myTargetPosition) {
+
+                                if (enemyPartData.layer == MultiTileLayer.multiTileBorder && myPartData.layer == MultiTileLayer.multiTileBorder) {
+
+                                    continue;
+
+                                }
+
+                                int enemyPriorityWeight = getPositionPriority(potentialEnemyAnchorPosition);
+
+                                if (enemyPriorityWeight > myPriorityWeight) {
+
+                                    return false;
+
+                                }
+
+                                if (enemyPriorityWeight == myPriorityWeight) {
+
+                                    if (potentialEnemyAnchorPosition.x > anchorPosition.x) {
+
+                                        return false;
+
+                                    }
+
+                                    if (potentialEnemyAnchorPosition.x == anchorPosition.x && potentialEnemyAnchorPosition.y > anchorPosition.y) {
+
+                                        return false;
+
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+
+    }
+
+    private void attachObstacleToCell(Cell targetCell, GameObject groundObject, GameObject obstaclePartObject) {
+
+        obstaclePartObject.transform.SetParent(groundObject.transform, true);
+        obstaclePartObject.transform.localPosition = Vector3.zero;
+
+        Collider obstacleCollider = obstaclePartObject.GetComponent<Collider>();
+
+        if (obstacleCollider != null) {
+
+            colliderToCellMap[obstacleCollider.GetInstanceID()] = targetCell;
+
+        }
+    }
+
+    private void applyRotationToTransform(Transform targetTransform, TileType tileTypeData, Vector2Int position) {
+
+        if (tileTypeData.randomRotationSteps == false && tileTypeData.randomRotationFree == false) {
+
+            return;
+
+        }
+
+        int customHash = position.x * 73856093 ^ position.y * 19349663;
+        System.Random pseudoRandomNumberGenerator = new System.Random(customHash);
+
+        Quaternion targetRotation = Quaternion.identity;
+
+        if (tileTypeData.randomRotationFree == true) {
+
+            float targetAngle = (float)(pseudoRandomNumberGenerator.NextDouble() * 360.0);
+            targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+
+        }
+
+        else if (tileTypeData.randomRotationSteps == true) {
+
+            int currentSteps = pseudoRandomNumberGenerator.Next(0, 4);
+            targetRotation = Quaternion.Euler(0f, currentSteps * 90f, 0f);
+
+        }
+
+        targetTransform.localRotation = targetRotation;
+
+    }
+
+    private void clearVisuals() {
+
+        foreach (Transform childTransform in transform) {
+
+            if (Application.isPlaying == true) {
+
+                Destroy(childTransform.gameObject);
+
+            }
+
+            else {
+
+                DestroyImmediate(childTransform.gameObject);
+
+            }
+        }
+    }
+
+    private void findPlayer() {
+
+        if (playerController == null) {
+
+            GameObject foundPlayer = GameObject.FindWithTag("Player");
+            GameObject playerObject = null;
+
+            if (foundPlayer != null) {
+
+                playerObject = foundPlayer.transform.parent.gameObject;
+
+            }
+
+            if (playerObject != null) {
+
+                playerController = playerObject.GetComponent<PlayerControllerBase>();
+
+            }
+        }
+    }
+
+    public void automaticCenter() {
+
+        if (gridAnimations != null) {
+
+            if (lastStopCenterState == true && gridAnimations.stopCenter == false) {
+
+                if (playerController != null) {
+
+                    recenterGrid(playerController.getCurrentGridPos());
+
+                }
+            }
+
+            lastStopCenterState = gridAnimations.stopCenter;
+
+        }
+    }
+
+    public void recenterGrid(Vector2Int playerGridPosition) {
+
+        if (gridAnimations.stopCenter == true) {
+
+            return;
+
+        }
+
+        if (gridCenter == playerGridPosition) {
+
+            gridAnimations.centerAnimationEnded = true;
+            return;
+
+        }
+
+        gridCenter = playerGridPosition;
+
+        Vector3 targetPosition = -new Vector3(gridCenter.x * cellSize, 0f, gridCenter.y * cellSize);
+        Vector3 shiftVector = targetPosition - transform.position;
+
+        gridAnimations.playCenterGridAnimation(targetPosition, shiftVector, null, updateDuringMove: true);
+
+    }
+
+    public void updateGridCellsPartial() {
+
+        biomeGenerator.clearFrameCache();
+        obstacleValidationCache.Clear();
+
+        int halfWidth = visibleWidth / 2;
+        int halfHeight = visibleHeight / 2;
+
+        List<Cell> recentlyCreatedCells = new List<Cell>();
+        Dictionary<Vector2Int, Cell> newCellsDictionary = new Dictionary<Vector2Int, Cell>();
+
+        foreach (var keyValuePair in cells) {
+
+            Vector2Int globalPosition = keyValuePair.Key;
+            Vector2Int relativePosition = globalPosition - gridCenter;
+
+            bool isOutOfRange = Mathf.Abs(relativePosition.x) > halfWidth || Mathf.Abs(relativePosition.y) > halfHeight;
+
+            if (isOutOfRange == true) {
+
+                if (keyValuePair.Value.visual != null) {
+
+                    StartCoroutine(gridAnimations.unscaleCell(keyValuePair.Value.visual, 0f));
+
+                }
+            }
+
+            else {
+
+                newCellsDictionary[globalPosition] = keyValuePair.Value;
+
+            }
+        }
+
+        reservedPositions.Clear();
+
+        foreach (var keyValuePair in newCellsDictionary) {
+
+            if (keyValuePair.Value.isWalkable == false) {
+
+                reservedPositions.Add(keyValuePair.Key);
+
+            }
+
+        }
+
+        cells = newCellsDictionary;
+
+        for (int x = -halfWidth; x <= halfWidth; x = x + 1) {
+
+            for (int y = -halfHeight; y <= halfHeight; y = y + 1) {
+
+                Vector2Int globalPosition = gridCenter + new Vector2Int(x, y);
+                bool hasCell = cells.ContainsKey(globalPosition);
+
+                if (hasCell == false) {
+
+                    createCellAt(globalPosition);
+
+                    bool cellSuccessfullyCreated = cells.TryGetValue(globalPosition, out Cell currentCell);
+
+                    if (cellSuccessfullyCreated == true) {
+
+                        recentlyCreatedCells.Add(currentCell);
+
+                    }
+                }
+            }
+        }
+
+        if (recentlyCreatedCells.Count > 0) {
+
+            gridAnimations.playNewCellsAnimation(recentlyCreatedCells);
+
+        }
+    }
+
+    // ============================================================
+    // Coordinate Conversions & Querying
+    // ============================================================
+
+    public Vector2Int worldToGridPosition(Vector3 worldPosition) {
+
+        Vector3 localPosition = worldPosition - transform.position;
+        return new Vector2Int(Mathf.RoundToInt(localPosition.x / cellSize), Mathf.RoundToInt(localPosition.z / cellSize));
+
+    }
+
+    public Vector3 gridToWorldPosition(Vector2Int gridPosition) {
+
+        tryGetCells(gridPosition, out Cell targetCell);
+        float currentHeight;
+
+        if (targetCell != null && targetCell.visual != null) {
+
+            currentHeight = targetCell.visual.transform.position.y;
+
+        }
+
+        else {
+
+            currentHeight = 0f;
+
+        }
+
+        return transform.position + new Vector3(gridPosition.x * cellSize, currentHeight, gridPosition.y * cellSize);
+
+    }
+
+    public void checkForDamageableObjectOnCell(Vector2Int positionInGrid, out GameObject objectInCell) {
+
+        objectInCell = null;
+        bool hasCell = tryGetCells(positionInGrid, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            if (targetCell != null && targetCell.visual != null) {
+
+                AttackSystem targetAttackSystem = targetCell.visual.transform.GetComponentInChildren<AttackSystem>();
+
+                if (targetAttackSystem != null) {
+
+                    objectInCell = targetAttackSystem.gameObject;
+
+                }
+            }
+        }
+    }
+
+    public void refreshCellVisualsAt(Vector2Int gridPosition) {
+
+        bool hasCell = cells.TryGetValue(gridPosition, out Cell targetCell);
+
+        if (hasCell == true) {
+
+            if (targetCell.minY > 0f) {
+
+                targetCell.tileType = null;
+                targetCell.layerType = MultiTileLayer.None;
+                targetCell.isWalkable = true;
+
+                if (gridHighlighter != null) {
+
+                    gridHighlighter.refreshHoverAndPath();
+
+                }
+
+                return;
+
+            }
+
+            List<Transform> entitiesToRescue = new List<Transform>();
+
+            if (targetCell.visual != null) {
+
+                foreach (Transform childTransform in targetCell.visual.transform) {
+
+                    if (childTransform.gameObject.name != "DestroyParticleSystem") {
+
+                        entitiesToRescue.Add(childTransform);
+
+                    }
+                }
+
+                foreach (Transform rescueTransform in entitiesToRescue) {
+
+                    rescueTransform.SetParent(transform, true);
+
+                }
+
+                Destroy(targetCell.visual);
+
+            }
+
+            createCleanCellAt(gridPosition);
+
+            bool newCellCreated = cells.TryGetValue(gridPosition, out Cell newTargetCell);
+
+            if (newCellCreated == true) {
+
+                if (newTargetCell.visual != null) {
+
+                    newTargetCell.visual.SetActive(true);
+
+                    foreach (Transform rescueTransform in entitiesToRescue) {
+
+                        rescueTransform.SetParent(newTargetCell.visual.transform, true);
+
+                    }
+                }
+            }
+
+            if (gridHighlighter != null) {
+
+                gridHighlighter.refreshHoverAndPath();
+
+            }
+        }
+    }
+
+    public void unreservePosition(Vector2Int gridPosition) {
+
+        bool isReserved = reservedPositions.Contains(gridPosition);
+
+        if (isReserved == true) {
+
+            reservedPositions.Remove(gridPosition);
+
+        }
+    }
+
+    private void OnDrawGizmosSelected() {
+
+        var currentCellsDictionary = getCells();
+
+        if (currentCellsDictionary == null) {
+
+            return;
+
+        }
+
+        foreach (var currentCell in currentCellsDictionary) {
+
+            // --- LAYER 1: Cell State (y = 2) ---
+            Vector3 worldPosition = gridToWorldPosition(currentCell.Key);
+            worldPosition.y = 2f;
+
+            switch (currentCell.Value.currentStateOfCell) {
+
+                case Cell.StateOfCell.available:
+                    Gizmos.color = Color.green;
+                    Gizmos.DrawWireSphere(worldPosition, 0.25f);
+                    break;
+
+                case Cell.StateOfCell.transit:
+                    Gizmos.color = Color.yellow;
+                    Gizmos.DrawWireSphere(worldPosition, 0.25f);
+                    break;
+
+                case Cell.StateOfCell.occupied:
+                    Gizmos.color = Color.red;
+                    Gizmos.DrawWireSphere(worldPosition, 0.25f);
+                    break;
+
+            }
+
+            // --- LAYER 2: Walkable (y = 4) ---
+            worldPosition.y = 4f;
+
+            if (currentCell.Value.isWalkable == true) {
+
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawWireSphere(worldPosition, 0.25f);
+
+            }
+
+            else {
+
+                Gizmos.color = Color.purple;
+                Gizmos.DrawWireSphere(worldPosition, 0.25f);
+
+            }
+
+            // --- LAYER 3: Occupied By Entity (y = 6) ---
+            worldPosition.y = 6f;
+
+            if (currentCell.Value.occupiedByEntity == true) {
+
+                // Blue to highlight that there is an entity
+                Gizmos.color = Color.blue;
+                Gizmos.DrawWireSphere(worldPosition, 0.25f);
+
+            }
+
+            else {
+
+                // White (and slightly smaller) to indicate there is NO entity without cluttering the screen
+                Gizmos.color = Color.white;
+                Gizmos.DrawWireSphere(worldPosition, 0.15f);
+
+            }
+        }
+    }
+
+    public List<Vector2Int> getObstacleFootprint(Vector2Int gridPosition) {
+
+        List<Vector2Int> targetFootprint = new List<Vector2Int>();
+        Vector2Int anchorPosition = gridPosition;
+        TileType obstacleType = null;
+
+        bool hasTargetCell = tryGetCells(gridPosition, out Cell targetCell);
+
+        if (hasTargetCell == true && targetCell.tileType != null && targetCell.tileType.isMultiTile == true) {
+
+            obstacleType = targetCell.tileType;
+
+        }
+
+        bool hasParentNeighbor = checkForParentNeighbor(gridPosition, out TileType parentTypeFound, out Vector2Int parentPosition, out int targetChildIndex);
+
+        if (hasParentNeighbor == true) {
+
+            anchorPosition = parentPosition;
+            obstacleType = parentTypeFound;
+
+        }
+
+        if (obstacleType == null || obstacleType.isMultiTile == false) {
+
+            targetFootprint.Add(gridPosition);
+            return targetFootprint;
+
+        }
+
+        targetFootprint.Add(anchorPosition);
+
+        if (obstacleType.multiTileShape != null) {
+
+            int rotationSteps = getRotationStepsForPosition(anchorPosition, obstacleType);
+
+            foreach (var shapePart in obstacleType.multiTileShape) {
+
+                if (shapePart.offset == Vector2Int.zero) {
+
+                    continue;
+
+                }
+
+                Vector2Int rotatedOffset = rotateOffset(shapePart.offset, rotationSteps);
+                targetFootprint.Add(anchorPosition + rotatedOffset);
+
+            }
+        }
+
+        return targetFootprint;
+
+    }
+
+    // ============================================================
+    // Logical Prediction (For Grid Highlighter)
+    // ============================================================
+
+    public TileType getPredictedEnemyAt(Vector2Int gridPosition) {
+
+        BiomeCellData targetCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+
+        if (GridStateManager.Instance != null) {
+
+            bool isObstacleDestroyed = GridStateManager.Instance.isObstacleDestroyedAt(gridPosition);
+            bool isEntityDestroyed = GridStateManager.Instance.isEntityDestroyedAt(gridPosition);
+
+            if (isObstacleDestroyed == true || isEntityDestroyed == true) {
+
+                targetCellData.obstacleType = null;
+                targetCellData.enemyType = null;
+                targetCellData.entityType = null;
+
+            }
+        }
+
+        MultiTileLayer detectedLayer = MultiTileLayer.None;
+        bool isWalkable = true;
+        bool isGhostChild = false;
+
+        bool hasParentNeighbor = checkForParentNeighbor(gridPosition, out TileType parentTypeFound, out Vector2Int anchorPosition, out int targetChildIndex);
+
+        if (hasParentNeighbor == true) {
+
+            bool isParentValid = true;
+
+            if (GridStateManager.Instance != null && GridStateManager.Instance.isObstacleDestroyedAt(gridPosition) == true) {
+
+                isParentValid = false;
+
+            }
+
+            if (isParentValid == true) {
+
+                Vector2Int logicalOffset = gridPosition - anchorPosition;
+                int rotationSteps = getRotationStepsForPosition(anchorPosition, parentTypeFound);
+                int counterRotation = (4 - rotationSteps) % 4;
+
+                Vector2Int originalOffset = rotateOffset(logicalOffset, counterRotation);
+                detectedLayer = parentTypeFound.getLayerAt(originalOffset);
+
+                if (detectedLayer != MultiTileLayer.multiTileBorder) {
+
+                    isGhostChild = true;
+
+                    if (detectedLayer == MultiTileLayer.noWalkable) {
+
+                        isWalkable = false;
+
+                    }
+
+                    targetCellData.obstacleType = null;
+                    targetCellData.entityType = null;
+
+                }
+            }
+        }
+
+        if (isGhostChild == false && targetCellData.obstacleType != null) {
+
+            bool isLocallyWater = false;
+
+            if (targetCellData.groundType != null && targetCellData.groundType.isWater == true) {
+
+                isLocallyWater = true;
+
+            }
+
+            bool isValidLocation = true;
+
+            if (targetCellData.obstacleType.mustSpawnOnWater == true && isLocallyWater == false) {
+
+                isValidLocation = false;
+
+            }
+
+            else if (targetCellData.obstacleType.canSpawnOnWater == false && targetCellData.obstacleType.mustSpawnOnWater == false && isLocallyWater == true) {
+
+                isValidLocation = false;
+
+            }
+
+            if (isValidLocation == true) {
+
+                if (targetCellData.obstacleType.isMultiTile == true) {
+
+                    if (isObstacleValid(gridPosition, targetCellData.obstacleType) == true) {
+
+                        detectedLayer = targetCellData.obstacleType.getLayerAt(Vector2Int.zero);
+
+                        if (detectedLayer == MultiTileLayer.noWalkable) {
+
+                            isWalkable = false;
+
+                        }
+                    }
+
+                    else {
+
+                        targetCellData.obstacleType = null;
+
+                    }
+                }
+
+                else {
+
+                    if (targetCellData.obstacleType.isWalkable == false) {
+
+                        isWalkable = false;
+
+                    }
+                }
+            }
+
+            else {
+
+                targetCellData.obstacleType = null;
+
+            }
+        }
+
+        if (targetCellData.groundType != null && targetCellData.groundType.isWalkable == false) {
+
+            isWalkable = false;
+
+        }
+
+        TileType biomeSuggestedEnemy = null;
+
+        if (detectedLayer == MultiTileLayer.forceEnemySpawn) {
+
+            biomeSuggestedEnemy = biomeGenerator.getForcedEnemyAt(gridPosition);
+
+        }
+
+        else if (isWalkable == true) {
+
+            if (detectedLayer == MultiTileLayer.None || detectedLayer == MultiTileLayer.multiTileBorder) {
+
+                biomeSuggestedEnemy = targetCellData.enemyType;
+
+            }
+        }
+
+        if (GridStateManager.Instance != null) {
+
+            return GridStateManager.Instance.getEnemySpawnAt(gridPosition, biomeSuggestedEnemy);
+
+        }
+
+        return biomeSuggestedEnemy;
+
+    }
+}
