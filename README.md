@@ -26,7 +26,7 @@ Scripts are grouped by functionality:
 - [**Cursor**](/Cursor): Manages custom cursor visuals, hold-to-fill progress, and layer-specific interaction states.  
 - [**DevTools**](/DevTools): Provides a debugging panel interface for testing and adjusting game variables at runtime.  
 - [**EntityScripts**](/EntityScripts): Governs general entity behaviors like procedural falling animations upon spawning.  
-- [**FloatingNumber**](/FloatingNumber): Controls the instantiation and animation of floating combat text or damage numbers.  
+- [**FloatingNumbers**](/FloatingNumbers): Controls the instantiation and animation of floating combat text or damage numbers.  
 - [**Gamefeel**](/Gamefeel): Centralizes visual impact effects, hitstops, and global particle systems to enhance combat weight.  
 - [**Ilustrations**](/Ilustrations): Manages the display and animation sequences for 2D illustrative UI assets.  
 - [**InspectorEditors**](/InspectorEditors): Contains custom Unity Editor scripts to streamline the configuration of biomes, stages, and tile types.  
