@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="/Assets/banner.jpg" alt="Candletales Banner" />
+  <img src="/Assets/banner.png" alt="Candletales Banner" />
 </p>
 
 # Candletales
