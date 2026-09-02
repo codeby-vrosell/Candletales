@@ -1,5 +1,5 @@
 // ============================================================
-// Readme of SlimeAnimations
+// Readme of SlimeAnimator
 // ============================================================ 
 
 // ============================================================
@@ -27,7 +27,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 
-public class SlimeAnimations : MonoBehaviour {
+public class SlimeAnimator : MonoBehaviour {
 
     // ============================================================
     // Eat Dice Animation Settings
