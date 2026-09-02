@@ -82,13 +82,13 @@ public class GridAnimator : MonoBehaviour {
     // Component References
     // ============================================================
 
-    private GridManager gridManager;
+    private GridManager gridManagerScript;
     private Coroutine moveCoroutine;
-    private PlayerControllerBase playerMover;
+    private PlayerControllerBase playerControllerBaseScript;
 
     private void Awake() {
 
-        gridManager = GetComponent<GridManager>();
+        gridManagerScript = GetComponent<GridManager>();
 
     }
 
@@ -206,7 +206,7 @@ public class GridAnimator : MonoBehaviour {
 
     private IEnumerator spawnGridAnimation(Vector2Int startPoint) {
 
-        var cellsDictionary = gridManager.getCells();
+        var cellsDictionary = gridManagerScript.getCells();
 
         while (cellsDictionary.Count == 0) {
 
@@ -344,9 +344,9 @@ public class GridAnimator : MonoBehaviour {
         Vector3 startPosition = transform.position;
         Vector3 playerStartPosition;
 
-        if (playerMover != null) {
+        if (playerControllerBaseScript != null) {
 
-            playerStartPosition = playerMover.transform.position;
+            playerStartPosition = playerControllerBaseScript.transform.position;
 
         }
         else {
@@ -389,15 +389,15 @@ public class GridAnimator : MonoBehaviour {
 
             transform.position = Vector3.LerpUnclamped(startPosition, targetPosition, easedTimeFraction);
 
-            if (playerMover != null) {
+            if (playerControllerBaseScript != null) {
 
-                playerMover.transform.position = Vector3.LerpUnclamped(playerStartPosition, playerStartPosition + playerShift, easedTimeFraction);
+                playerControllerBaseScript.transform.position = Vector3.LerpUnclamped(playerStartPosition, playerStartPosition + playerShift, easedTimeFraction);
 
             }
 
             if (updateDuringMove == true) {
 
-                gridManager.updateGridCellsPartial();
+                gridManagerScript.updateGridCellsPartial();
 
             }
 
@@ -409,13 +409,13 @@ public class GridAnimator : MonoBehaviour {
 
         transform.position = targetPosition;
 
-        if (playerMover != null) {
+        if (playerControllerBaseScript != null) {
 
-            playerMover.transform.position = playerStartPosition + playerShift;
+            playerControllerBaseScript.transform.position = playerStartPosition + playerShift;
 
         }
 
-        gridManager.updateGridCellsPartial();
+        gridManagerScript.updateGridCellsPartial();
 
         if (shouldStopAfterCenter == true) {
 
@@ -436,7 +436,7 @@ public class GridAnimator : MonoBehaviour {
 
     public void playNewCellsAnimation(IEnumerable<Cell> newCells) {
 
-        Vector2Int playerPosition = playerMover.getCurrentGridPos();
+        Vector2Int playerPosition = playerControllerBaseScript.getCurrentGridPos();
         List<(Cell cell, float distance)> cellDelays = new List<(Cell, float)>();
 
         foreach (var cell in newCells) {
@@ -513,13 +513,13 @@ public class GridAnimator : MonoBehaviour {
 
     private void findPlayer() {
 
-        if (playerMover != null) {
+        if (playerControllerBaseScript != null) {
 
             return;
 
         }
 
-        if (playerMover == null) {
+        if (playerControllerBaseScript == null) {
 
             GameObject playerObject = null;
             GameObject player = GameObject.FindWithTag("Player");
@@ -532,7 +532,7 @@ public class GridAnimator : MonoBehaviour {
 
             if (playerObject != null) {
 
-                playerMover = playerObject.GetComponent<PlayerControllerBase>();
+                playerControllerBaseScript = playerObject.GetComponent<PlayerControllerBase>();
 
             }
         }
