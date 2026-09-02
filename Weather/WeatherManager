@@ -1,0 +1,175 @@
+// ============================================================
+// Readme of WeatherManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as the global controller for atmospheric weather effects within the game environment.
+It operates a continuous background coroutine that randomly selects and triggers available weather configurations (like rain or fog) while respecting assigned cooldown periods and environmental constraints (e.g., night-only effects).
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Instantiates the particle system prefabs defined in the WeatherEffect configurations upon startup.
+- Evaluates the current state of the TurnCycleManager to filter out effects that are restricted to specific times of day.
+- Controls the active duration and cooldown intervals between successive weather events using randomized timers.
+- Toggles the emission module of the associated ParticleSystem components to smoothly start and stop the visual effects.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class WeatherManager : MonoBehaviour {
+
+    // ============================================================
+    // Global Settings
+    // ============================================================
+
+    [Header("Global Settings")]
+    public bool enableWeather = true;
+
+    public float minimumCooldownMinutes;
+    public float maximumCooldownMinutes;
+
+    // ============================================================
+    // Weather Settings
+    // ============================================================
+
+    [Header("Weather Settings")]
+    public List<WeatherEffect> weatherEffectsList = new List<WeatherEffect>();
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private TurnCycleManager turnCycleManagerScript;
+
+    private void Start() {
+
+        turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
+
+        initializeEffects();
+        StartCoroutine(playWeatherSequence());
+
+    }
+
+    // ============================================================
+    // Initialization Logic
+    // ============================================================
+
+    private void initializeEffects() {
+
+        foreach (WeatherEffect weatherEffect in weatherEffectsList) {
+
+            if (weatherEffect.particlePrefab != null) {
+
+                weatherEffect.particleInstance = Instantiate(weatherEffect.particlePrefab, transform);
+                weatherEffect.particleInstance.gameObject.SetActive(true);
+
+                setEmission(weatherEffect.particleInstance, false);
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Weather Sequence Loop
+    // ============================================================
+
+    private IEnumerator playWeatherSequence() {
+
+        while (true) {
+
+            float cooldownTimeSeconds = Random.Range(minimumCooldownMinutes, maximumCooldownMinutes) * 60f;
+
+            yield return new WaitForSeconds(cooldownTimeSeconds);
+
+            bool shouldSkipWeather = enableWeather == false || weatherEffectsList.Count == 0;
+
+            if (shouldSkipWeather == true) {
+
+                yield return new WaitForSeconds(1f);
+                continue;
+
+            }
+
+            List<WeatherEffect> validEffectsList = new List<WeatherEffect>();
+
+            foreach (WeatherEffect weatherEffect in weatherEffectsList) {
+
+                if (weatherEffect.onlyDuringNight == true) {
+
+                    bool isNightTime = turnCycleManagerScript != null && turnCycleManagerScript.currentState == states.Night;
+
+                    if (isNightTime == true) {
+
+                        validEffectsList.Add(weatherEffect);
+
+                    }
+                }
+
+                else {
+
+                    validEffectsList.Add(weatherEffect);
+
+                }
+            }
+
+            if (validEffectsList.Count > 0) {
+
+                WeatherEffect currentEffect = validEffectsList[Random.Range(0, validEffectsList.Count)];
+
+                if (currentEffect.particleInstance != null) {
+
+                    setEmission(currentEffect.particleInstance, true);
+
+                    float durationTimeSeconds = Random.Range(currentEffect.minimumDurationMinutes, currentEffect.maximumDurationMinutes) * 60f;
+                    float currentSequenceTimer = 0f;
+
+                    while (currentSequenceTimer < durationTimeSeconds) {
+
+                        if (enableWeather == false) {
+
+                            break;
+
+                        }
+
+                        if (currentEffect.onlyDuringNight == true && turnCycleManagerScript != null) {
+
+                            if (turnCycleManagerScript.currentState != states.Night) {
+
+                                break;
+
+                            }
+                        }
+
+                        currentSequenceTimer = currentSequenceTimer + Time.deltaTime;
+                        yield return null;
+
+                    }
+
+                    setEmission(currentEffect.particleInstance, false);
+
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // Utility Methods
+    // ============================================================
+
+    private void setEmission(ParticleSystem particleSystemComponent, bool isEnabled) {
+
+        ParticleSystem.EmissionModule emissionModule = particleSystemComponent.emission;
+        emissionModule.enabled = isEnabled;
+
+    }
+}
