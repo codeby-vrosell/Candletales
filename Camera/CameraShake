@@ -40,7 +40,7 @@ public class CameraShake : MonoBehaviour {
     // ============================================================
 
     private CinemachineCamera cinemachineCamera;
-    private CinemachineBasicMultiChannelPerlin cinemachineCameraPerlin;
+    private CinemachineBasicMultiChannelPerlin cinemachineBasicMultiChannelPerlin;
 
     // ============================================================
     // Coroutines
@@ -61,7 +61,7 @@ public class CameraShake : MonoBehaviour {
         Instance = this;
 
         cinemachineCamera = GetComponent<CinemachineCamera>();
-        cinemachineCameraPerlin = cinemachineCamera.GetComponentInChildren<CinemachineBasicMultiChannelPerlin>();
+        cinemachineBasicMultiChannelPerlin = cinemachineCamera.GetComponentInChildren<CinemachineBasicMultiChannelPerlin>();
 
     }
 
@@ -91,10 +91,10 @@ public class CameraShake : MonoBehaviour {
 
         }
 
-        if (cinemachineCameraPerlin != null) {
+        if (cinemachineBasicMultiChannelPerlin != null) {
 
-            cinemachineCameraPerlin.AmplitudeGain = amplitude;
-            cinemachineCameraPerlin.FrequencyGain = frequency;
+            cinemachineBasicMultiChannelPerlin.AmplitudeGain = amplitude;
+            cinemachineBasicMultiChannelPerlin.FrequencyGain = frequency;
 
         }
     }
@@ -109,10 +109,10 @@ public class CameraShake : MonoBehaviour {
 
         }
 
-        if (cinemachineCameraPerlin != null) {
+        if (cinemachineBasicMultiChannelPerlin != null) {
 
-            cinemachineCameraPerlin.AmplitudeGain = 0f;
-            cinemachineCameraPerlin.FrequencyGain = 0f;
+            cinemachineBasicMultiChannelPerlin.AmplitudeGain = 0f;
+            cinemachineBasicMultiChannelPerlin.FrequencyGain = 0f;
 
         }
     }
@@ -124,8 +124,8 @@ public class CameraShake : MonoBehaviour {
         // Define a threshold (80% of the total duration) to start fading out the shake effect
         float halfDuration = duration * 0.8f;
 
-        cinemachineCameraPerlin.AmplitudeGain = amplitude;
-        cinemachineCameraPerlin.FrequencyGain = frequency;
+        cinemachineBasicMultiChannelPerlin.AmplitudeGain = amplitude;
+        cinemachineBasicMultiChannelPerlin.FrequencyGain = frequency;
 
         while (elapsed < duration) {
 
@@ -138,7 +138,7 @@ public class CameraShake : MonoBehaviour {
 
                 float smoothAmplitude = Mathf.Lerp(amplitude, 0f, fadeTime);
 
-                cinemachineCameraPerlin.AmplitudeGain = smoothAmplitude;
+                cinemachineBasicMultiChannelPerlin.AmplitudeGain = smoothAmplitude;
 
             }
 
@@ -146,8 +146,8 @@ public class CameraShake : MonoBehaviour {
 
         }
 
-        cinemachineCameraPerlin.AmplitudeGain = 0f;
-        cinemachineCameraPerlin.FrequencyGain = 0f;
+        cinemachineBasicMultiChannelPerlin.AmplitudeGain = 0f;
+        cinemachineBasicMultiChannelPerlin.FrequencyGain = 0f;
 
         shakeCoroutine = null;
 
