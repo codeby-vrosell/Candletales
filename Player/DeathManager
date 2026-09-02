@@ -85,8 +85,8 @@ public class DeathManager : MonoBehaviour {
     // Internal State & References
     // ============================================================
 
-    private TurnCycleManager turnCycleManager;
-    private SplineChainAnimator splineChainsAnimatorScript;
+    private TurnCycleManager turnCycleManagerScript;
+    private SplineChainAnimator splineChainAnimatorScript;
     private CameraParallax cameraParallaxScript;
 
     private ChromaticAberration chromaticAberrationValue;
@@ -115,8 +115,8 @@ public class DeathManager : MonoBehaviour {
 
     private void Start() {
 
-        turnCycleManager = FindFirstObjectByType<TurnCycleManager>();
-        splineChainsAnimatorScript = FindFirstObjectByType<SplineChainAnimator>();
+        turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
+        splineChainAnimatorScript = FindFirstObjectByType<SplineChainAnimator>();
         cameraParallaxScript = FindFirstObjectByType<CameraParallax>();
 
         stainedEyeControllersArray = FindObjectsByType<StainedEyeController>(FindObjectsSortMode.None);
@@ -191,9 +191,9 @@ public class DeathManager : MonoBehaviour {
 
         }
 
-        if (turnCycleManager != null) {
+        if (turnCycleManagerScript != null) {
 
-            turnCycleManager.setState(states.Eye);
+            turnCycleManagerScript.setState(states.Eye);
 
         }
 
@@ -206,17 +206,17 @@ public class DeathManager : MonoBehaviour {
             }
         }
 
-        if (splineChainsAnimatorScript != null) {
+        if (splineChainAnimatorScript != null) {
 
-            splineChainsAnimatorScript.removeAllCombatChains();
+            splineChainAnimatorScript.removeAllCombatChains();
 
         }
 
         yield return new WaitForSeconds(delayBeforeChains);
 
-        if (splineChainsAnimatorScript != null) {
+        if (splineChainAnimatorScript != null) {
 
-            splineChainsAnimatorScript.playAllDeathChains();
+            splineChainAnimatorScript.playAllDeathChains();
 
         }
 
@@ -258,15 +258,15 @@ public class DeathManager : MonoBehaviour {
 
         float[] impactTimesArray = new float[0];
 
-        bool hasDeathChains = splineChainsAnimatorScript != null && splineChainsAnimatorScript.deathChainsArray != null;
+        bool hasDeathChains = splineChainAnimatorScript != null && splineChainAnimatorScript.deathChainsArray != null;
 
         if (hasDeathChains == true) {
 
-            impactTimesArray = new float[splineChainsAnimatorScript.deathChainsArray.Length];
+            impactTimesArray = new float[splineChainAnimatorScript.deathChainsArray.Length];
 
             for (int index = 0; index < impactTimesArray.Length; index = index + 1) {
 
-                var chainElement = splineChainsAnimatorScript.deathChainsArray[index];
+                var chainElement = splineChainAnimatorScript.deathChainsArray[index];
 
                 if (chainElement != null) {
 
@@ -351,9 +351,9 @@ public class DeathManager : MonoBehaviour {
 
         cameraTransform.position = targetPosition;
 
-        if (splineChainsAnimatorScript != null) {
+        if (splineChainAnimatorScript != null) {
 
-            splineChainsAnimatorScript.removeAllDeathChains();
+            splineChainAnimatorScript.removeAllDeathChains();
 
         }
     }
