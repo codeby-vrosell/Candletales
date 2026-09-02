@@ -84,7 +84,7 @@ public class WaypointManager : MonoBehaviour {
 
     private waypointAnimator waypointAnimatorScript;
     private PlayerControllerBase playerControllerScript;
-    private GridAnimations gridAnimationsScript;
+    private GridAnimator gridAnimatorScript;
 
     private void Awake() {
 
@@ -107,7 +107,7 @@ public class WaypointManager : MonoBehaviour {
     private void Start() {
 
         playerControllerScript = FindFirstObjectByType<PlayerControllerBase>();
-        gridAnimationsScript = FindFirstObjectByType<GridAnimations>();
+        gridAnimatorScript = FindFirstObjectByType<GridAnimator>();
 
         updateIndicatorColor();
 
