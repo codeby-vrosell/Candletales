@@ -25,7 +25,7 @@ Scripts are grouped by functionality:
 - [**Camera**](/Camera): Controls dynamic camera behaviors like parallax scrolling and impact shake effects.  
 - [**Cursor**](/Cursor): Manages custom cursor visuals, hold-to-fill progress, and layer-specific interaction states.  
 - [**DevTools**](/DevTools): Provides a debugging panel interface for testing and adjusting game variables at runtime.  
-- [**EntityScript**](/EntityScript): Governs general entity behaviors like procedural falling animations upon spawning.  
+- [**EntityScripts**](/EntityScripts): Governs general entity behaviors like procedural falling animations upon spawning.  
 - [**FloatingNumber**](/FloatingNumber): Controls the instantiation and animation of floating combat text or damage numbers.  
 - [**Gamefeel**](/Gamefeel): Centralizes visual impact effects, hitstops, and global particle systems to enhance combat weight.  
 - [**Ilustrations**](/Ilustrations): Manages the display and animation sequences for 2D illustrative UI assets.  
