@@ -53,7 +53,7 @@ public class SlimeManager : MonoBehaviour {
     // ============================================================
 
     private Vector3 defaultDiceScale;
-    private SlimeAnimations slimeAnimationsScript;
+    private SlimeAnimator slimeAnimatorScript;
     private bool isEating = false;
     private GameObject currentDice;
     private ParticleSystem slimeParticleSystem;
@@ -61,7 +61,7 @@ public class SlimeManager : MonoBehaviour {
 
     private void Awake() {
 
-        slimeAnimationsScript = GetComponent<SlimeAnimations>();
+        slimeAnimatorScript = GetComponent<SlimeAnimator>();
         Transform particleSystemTransform = transform.Find("SlimeParticleSystem");
         slimeParticleSystem = particleSystemTransform.GetComponent<ParticleSystem>();
 
@@ -146,7 +146,7 @@ public class SlimeManager : MonoBehaviour {
         targetDice.transform.SetParent(this.transform);
 
         // Change material to the empowered slime material
-        slimeAnimationsScript.playEatDiceAnimation(targetDice.transform, onEatFinished);
+        slimeAnimatorScript.playEatDiceAnimation(targetDice.transform, onEatFinished);
 
     }
 
@@ -170,7 +170,7 @@ public class SlimeManager : MonoBehaviour {
             }
         }
 
-        slimeAnimationsScript.playSquashAndStretch(() => { StartCoroutine(digestionRoutine()); });
+        slimeAnimatorScript.playSquashAndStretch(() => { StartCoroutine(digestionRoutine()); });
 
     }
 
@@ -178,7 +178,7 @@ public class SlimeManager : MonoBehaviour {
 
         yield return new WaitForSeconds(digestionTime);
 
-        slimeAnimationsScript.playSquashAndStretch(null);
+        slimeAnimatorScript.playSquashAndStretch(null);
         spitDice();
 
     }
@@ -258,9 +258,9 @@ public class SlimeManager : MonoBehaviour {
 
     public void triggerSpawnEffect() {
 
-        if (slimeAnimationsScript != null) {
+        if (slimeAnimatorScript != null) {
 
-            slimeAnimationsScript.playSpawnAnimation(() => {
+            slimeAnimatorScript.playSpawnAnimation(() => {
 
                 if (slimeParticleSystem != null) {
 
@@ -300,9 +300,9 @@ public class SlimeManager : MonoBehaviour {
 
         }
 
-        if (slimeAnimationsScript != null) {
+        if (slimeAnimatorScript != null) {
 
-            slimeAnimationsScript.playDeathAnimation(deathAnimationFinished);
+            slimeAnimatorScript.playDeathAnimation(deathAnimationFinished);
 
         }
 
