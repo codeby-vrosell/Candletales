@@ -88,7 +88,7 @@ public class Totem : MonoBehaviour {
 
     private InventoryManager inventoryManagerScript;
     private TotemsCandlesManager totemsCandlesManagerScript;
-    private TotemsCandlesAnimations animationsScript;
+    private TotemsCandlesAnimator totemsCandlesAnimatorScript;
     private BossInvokerManager bossInvokerManagerScript;
     private CombatManager combatManagerScript;
     private TurnCycleManager turnCycleManagerScript;
@@ -100,7 +100,7 @@ public class Totem : MonoBehaviour {
 
         inventoryManagerScript = FindFirstObjectByType<InventoryManager>();
         totemsCandlesManagerScript = FindFirstObjectByType<TotemsCandlesManager>();
-        animationsScript = FindFirstObjectByType<TotemsCandlesAnimations>();
+        totemsCandlesAnimatorScript = FindFirstObjectByType<TotemsCandlesAnimator>();
         bossInvokerManagerScript = FindFirstObjectByType<BossInvokerManager>();
         combatManagerScript = FindFirstObjectByType<CombatManager>();
         turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
@@ -461,9 +461,9 @@ public class Totem : MonoBehaviour {
 
                     }
 
-                    if (animationsScript != null && totemsCandlesManagerScript != null) {
+                    if (totemsCandlesAnimatorScript != null && totemsCandlesManagerScript != null) {
 
-                        animationsScript.animateLightFade(assignedLight, false, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
+                        totemsCandlesAnimatorScript.animateLightFade(assignedLight, false, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
 
                     }
                 }
@@ -479,9 +479,9 @@ public class Totem : MonoBehaviour {
 
                     }
 
-                    if (animationsScript != null && totemsCandlesManagerScript != null) {
+                    if (totemsCandlesAnimatorScript != null && totemsCandlesManagerScript != null) {
 
-                        animationsScript.animateLightFade(assignedLight, true, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
+                        totemsCandlesAnimatorScript.animateLightFade(assignedLight, true, totemsCandlesManagerScript.maxLightIntensity, totemsCandlesManagerScript.lightFadeDuration);
 
                     }
                 }
