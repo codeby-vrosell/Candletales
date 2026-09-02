@@ -1,0 +1,37 @@
+// ============================================================
+// Readme of CurveData
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to store curve configurations and associated export settings.
+It acts as a data container for managing multiple lists of curve information.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores export settings configurations.
+- Holds a nested list collection of CurveInfo elements.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+
+[System.Serializable]
+public class CurveData {
+
+    // ============================================================
+    // Curve Data Settings
+    // ============================================================
+
+    public ExportSettings exportSettings;
+
+    public List<List<CurveInfo>> curvesList;
+
+}
