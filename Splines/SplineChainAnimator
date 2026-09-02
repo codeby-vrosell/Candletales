@@ -1,0 +1,94 @@
+// ============================================================
+// Readme of SplineChainAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as a centralized controller for triggering multiple SplineChain animations simultaneously.
+It categorizes the procedural chains into distinct groups (such as combat and death sequences) and provides public methods to easily deploy or retract them as a coordinated visual effect.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores arrays of SplineChain references categorized by their use case (combat vs. death).
+- Iterates through the stored arrays to safely play or remove all combat chains.
+- Iterates through the stored arrays to safely play or remove all death chains.
+- Executes removal loops in reverse order to ensure clean hierarchical retraction.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class SplineChainAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Chain Arrays
+    // ============================================================
+
+    [Header("Combat Chains Array")]
+    public SplineChain[] combatChainsArray;
+
+    [Header("Death Chains Array")]
+    public SplineChain[] deathChainsArray;
+
+    // ============================================================
+    // Combat Chain Controls
+    // ============================================================
+
+    public void playAllCombatChains() {
+
+        foreach (SplineChain combatChain in combatChainsArray) {
+
+            if (combatChain != null) {
+
+                combatChain.playChainAnimation();
+
+            }
+        }
+    }
+
+    public void removeAllCombatChains() {
+
+        for (int chainIndex = combatChainsArray.Length - 1; chainIndex >= 0; chainIndex = chainIndex - 1) {
+
+            if (combatChainsArray[chainIndex] != null) {
+
+                combatChainsArray[chainIndex].removeChainAnimation();
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Death Chain Controls
+    // ============================================================
+
+    public void playAllDeathChains() {
+
+        foreach (SplineChain deathChain in deathChainsArray) {
+
+            if (deathChain != null) {
+
+                deathChain.playChainAnimation();
+
+            }
+        }
+    }
+
+    public void removeAllDeathChains() {
+
+        for (int chainIndex = deathChainsArray.Length - 1; chainIndex >= 0; chainIndex = chainIndex - 1) {
+
+            if (deathChainsArray[chainIndex] != null) {
+
+                deathChainsArray[chainIndex].removeChainAnimation();
+
+            }
+        }
+    }
+}
