@@ -58,7 +58,7 @@ public class SpawnManager : MonoBehaviour {
 
     private GridAnimator gridAnimatorScript;
     private GridHighlighter gridHighlighterScript;
-    private EntityFaller playerFallerScript;
+    private EntityFaller entityFallerScript;
     private TotemsCandlesAnimator totemsCandlesAnimatorScript;
     private TurnCounterAnimator turnCounterAnimatorScript;
     private TurnCycleManager turnCycleManagerScript;
@@ -164,13 +164,13 @@ public class SpawnManager : MonoBehaviour {
             }
 
             GameObject playerInstance = Instantiate(playerPrefab, spawnPosition, Quaternion.identity);
-            playerFallerScript = playerInstance.GetComponent<EntityFaller>();
+            entityFallerScript = playerInstance.GetComponent<EntityFaller>();
 
-            if (playerFallerScript != null) {
+            if (entityFallerScript != null) {
 
                 bool playerHasFinished = false;
 
-                playerFallerScript.fall(() => {
+                entityFallerScript.fall(() => {
 
                     playerHasFinished = true;
 
