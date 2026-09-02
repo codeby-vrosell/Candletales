@@ -1,0 +1,244 @@
+// ============================================================
+// Readme of MarineAnimalsManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as the central object pooling and spawning manager for marine ambient life across the procedural grid.
+It handles spawning entities at the visible edges of the board and cleans them up when they drift offscreen, ensuring optimal performance and a continuous flow of background fauna.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Maintains an object pool of marine animal GameObjects to prevent costly runtime instantiations.
+- Calculates valid spawn points along the outer edges of the currently visible grid.
+- Periodically attempts to spawn new animals up to a defined active maximum.
+- Iterates through active animals to check their grid coordinates and despawns them smoothly if they swim offscreen.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+
+public class MarineAnimalsManager : MonoBehaviour {
+
+    // ============================================================
+    // General Settings
+    // ============================================================
+
+    [Header("General Settings")]
+    public GameObject[] animalPrefabsArray;
+    public int maximumAnimalsActive;
+    public float spawnInterval;
+    public float scaleSpeed;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private float timer = 0f;
+    private GridManager gridManagerScript;
+    private List<GameObject> animalPoolList = new List<GameObject>();
+
+    private void Start() {
+
+        gridManagerScript = GridManager.Instance;
+
+        if (gridManagerScript == null) {
+
+            gridManagerScript = Object.FindFirstObjectByType<GridManager>();
+
+        }
+    }
+
+    private void Update() {
+
+        timer = timer + Time.deltaTime;
+
+        if (timer >= spawnInterval) {
+
+            timer = 0f;
+            trySpawnAnimal();
+
+        }
+
+        cleanOffscreenAnimals();
+
+    }
+
+    // ============================================================
+    // Lifecycle Management
+    // ============================================================
+
+    private void cleanOffscreenAnimals() {
+
+        for (int index = 0; index < animalPoolList.Count; index = index + 1) {
+
+            if (animalPoolList[index].activeSelf == true) {
+
+                MarineAnimalController animalScript = animalPoolList[index].GetComponent<MarineAnimalController>();
+
+                if (animalScript != null) {
+
+                    if (animalScript.isDespawning == true) {
+
+                        continue;
+
+                    }
+                }
+
+                Vector2Int gridPosition = gridManagerScript.worldToGridPosition(animalPoolList[index].transform.position);
+                Vector2Int gridOffset = gridPosition - gridManagerScript.gridCenter;
+
+                int limitX = gridManagerScript.visibleWidth / 2;
+                int limitY = gridManagerScript.visibleHeight / 2;
+
+                bool isOutsideGrid = Mathf.Abs(gridOffset.x) >= limitX || Mathf.Abs(gridOffset.y) >= limitY;
+
+                if (isOutsideGrid == true) {
+
+                    Vector3 centerWorldPosition = gridManagerScript.gridToWorldPosition(gridManagerScript.gridCenter);
+                    Vector3 vectorToAnimal = animalPoolList[index].transform.position - centerWorldPosition;
+                    vectorToAnimal.y = 0f;
+
+                    Vector3 forwardDirection = animalPoolList[index].transform.forward;
+                    forwardDirection.y = 0f;
+
+                    bool isMovingAway = Vector3.Dot(vectorToAnimal.normalized, forwardDirection.normalized) > 0.1f;
+
+                    if (isMovingAway == true) {
+
+                        if (animalScript != null) {
+
+                            animalScript.startDespawn();
+
+                        }
+
+                        else {
+
+                            animalPoolList[index].SetActive(false);
+
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void trySpawnAnimal() {
+
+        if (animalPrefabsArray == null) {
+
+            return;
+
+        }
+
+        if (animalPrefabsArray.Length == 0) {
+
+            return;
+
+        }
+
+        int activeAnimalsCount = 0;
+
+        foreach (GameObject animalObject in animalPoolList) {
+
+            if (animalObject.activeSelf == true) {
+
+                activeAnimalsCount = activeAnimalsCount + 1;
+
+            }
+        }
+
+        if (activeAnimalsCount >= maximumAnimalsActive) {
+
+            return;
+
+        }
+
+        GameObject prefabToSpawn = animalPrefabsArray[Random.Range(0, animalPrefabsArray.Length)];
+        GameObject animalInstance = getPooledAnimal(prefabToSpawn);
+        MarineAnimalController animalScript = animalInstance.GetComponent<MarineAnimalController>();
+
+        int halfWidth = gridManagerScript.visibleWidth / 2;
+        int halfHeight = gridManagerScript.visibleHeight / 2;
+        int randomEdgeIndex = Random.Range(0, 4);
+
+        Vector2Int spawnGridPosition = gridManagerScript.gridCenter;
+        Vector3 spawnDirection = Vector3.zero;
+
+        if (randomEdgeIndex == 0) {
+
+            spawnGridPosition = spawnGridPosition + new Vector2Int(Random.Range(-halfWidth, halfWidth), halfHeight);
+            spawnDirection = Vector3.back;
+
+        }
+
+        else if (randomEdgeIndex == 1) {
+
+            spawnGridPosition = spawnGridPosition + new Vector2Int(Random.Range(-halfWidth, halfWidth), -halfHeight);
+            spawnDirection = Vector3.forward;
+
+        }
+
+        else if (randomEdgeIndex == 2) {
+
+            spawnGridPosition = spawnGridPosition + new Vector2Int(-halfWidth, Random.Range(-halfHeight, halfHeight));
+            spawnDirection = Vector3.right;
+
+        }
+
+        else if (randomEdgeIndex == 3) {
+
+            spawnGridPosition = spawnGridPosition + new Vector2Int(halfWidth, Random.Range(-halfHeight, halfHeight));
+            spawnDirection = Vector3.left;
+
+        }
+
+        Vector3 spawnWorldPosition = gridManagerScript.gridToWorldPosition(spawnGridPosition);
+        spawnWorldPosition.y = gridManagerScript.transform.position.y;
+
+        animalInstance.transform.position = spawnWorldPosition;
+        animalInstance.SetActive(true);
+
+        if (animalScript != null) {
+
+            animalScript.initialize(spawnDirection, scaleSpeed);
+
+        }
+    }
+
+    // ============================================================
+    // Pooling Logic
+    // ============================================================
+
+    private GameObject getPooledAnimal(GameObject prefabType) {
+
+        foreach (GameObject animalObject in animalPoolList) {
+
+            if (animalObject.activeSelf == false) {
+
+                bool matchesName = animalObject.name.StartsWith(prefabType.name);
+
+                if (matchesName == true) {
+
+                    return animalObject;
+
+                }
+            }
+        }
+
+        GameObject newAnimalInstance = Instantiate(prefabType, transform);
+        newAnimalInstance.name = prefabType.name + "_PoolObj";
+
+        animalPoolList.Add(newAnimalInstance);
+
+        return newAnimalInstance;
+
+    }
+}
