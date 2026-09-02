@@ -92,7 +92,7 @@ public class Totem : MonoBehaviour {
     private BossInvokerManager bossInvokerManagerScript;
     private CombatManager combatManagerScript;
     private TurnCycleManager turnCycleManagerScript;
-    private TotemProgressBar progressBarScript;
+    private TotemProgressBar totemProgressBarScript;
 
     private Camera mainCamera;
 
@@ -104,7 +104,7 @@ public class Totem : MonoBehaviour {
         bossInvokerManagerScript = FindFirstObjectByType<BossInvokerManager>();
         combatManagerScript = FindFirstObjectByType<CombatManager>();
         turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
-        progressBarScript = GetComponentInChildren<TotemProgressBar>();
+        totemProgressBarScript = GetComponentInChildren<TotemProgressBar>();
 
         mainCamera = Camera.main;
 
@@ -361,9 +361,9 @@ public class Totem : MonoBehaviour {
 
         }
 
-        if (progressBarScript != null) {
+        if (totemProgressBarScript != null) {
 
-            progressBarScript.triggerFadeOut();
+            totemProgressBarScript.triggerFadeOut();
 
         }
 
