@@ -40,8 +40,8 @@ public class GridStateManager : MonoBehaviour {
     // ============================================================
 
     private TurnCycleManager turnCycleManager;
-    private BiomeGenerator biomeGenerator;
-    private GridHighlighter gridHighlighter;
+    private BiomeGenerator biomeGeneratorScript;
+    private GridHighlighter gridHighlighterScript;
 
     // ============================================================
     // Obstacles State
@@ -90,8 +90,8 @@ public class GridStateManager : MonoBehaviour {
     void Start() {
 
         turnCycleManager = FindFirstObjectByType<TurnCycleManager>();
-        biomeGenerator = FindFirstObjectByType<BiomeGenerator>();
-        gridHighlighter = FindFirstObjectByType<GridHighlighter>();
+        biomeGeneratorScript = FindFirstObjectByType<BiomeGenerator>();
+        gridHighlighterScript = FindFirstObjectByType<GridHighlighter>();
 
     }
 
@@ -106,7 +106,7 @@ public class GridStateManager : MonoBehaviour {
         if (hasCell == true) {
 
             targetCell.isWalkable = isWalkable;
-            gridHighlighter.refreshHoverAndPath();
+            gridHighlighterScript.refreshHoverAndPath();
 
         }
     }
@@ -460,7 +460,7 @@ public class GridStateManager : MonoBehaviour {
 
                 if (historyState.isDead == true) {
 
-                    int respawnTurn = historyState.deathTurn + biomeGenerator.turnsToRespawn;
+                    int respawnTurn = historyState.deathTurn + biomeGeneratorScript.turnsToRespawn;
 
                     if (turnCycleManager.currentTurn >= respawnTurn) {
 
