@@ -1,0 +1,218 @@
+// ============================================================
+// Readme of TileType
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a ScriptableObject that acts as the core data template for all grid elements, including standard tiles, obstacles, water segments, and spawnable entities.
+It stores gameplay properties, procedural weight values, and spatial configurations utilized by the GridManager to construct the level.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores fundamental physical and gameplay properties such as walkability, movement costs, and speed multipliers.
+- Defines procedural generation rules, including spawn weights, rotation permissions, and water compatibility.
+- Manages multi-tile spatial data, calculating the necessary bounding radius to prevent overlaps during generation.
+- Provides utility methods to query layer configurations at specific offsets and sort shape data for deterministic processing.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+
+// ============================================================
+// Enums
+// ============================================================
+
+public enum MultiTileLayer { None, noWalkable, walkableNoSpawn, forceEnemySpawn, forceEntitySpawn, multiTileBorder }
+public enum EntityLayer { None, staticEntity, dynamicEntity }
+
+[CreateAssetMenu(fileName = "NewTileType", menuName = "Grid/TileType")]
+public class TileType : ScriptableObject {
+
+    // ============================================================
+    // General Settings
+    // ============================================================
+
+    [Header("General Settings")]
+    public string tileName = "NewTile";
+    public GameObject prefab;
+
+    // ============================================================
+    // Gameplay
+    // ============================================================
+
+    [Header("Gameplay")]
+    public bool isWalkable = true;
+    public bool isWater = false;
+    public bool isEnemy = false;
+    public bool isEntity = false;
+
+    public float offsetY = 1f;
+
+    [HideInInspector]
+    [Min(1)] public int movementCost = 1;
+
+    [HideInInspector]
+    public float speedMultiplier = 1f;
+
+    // ============================================================
+    // Procedural Settings
+    // ============================================================
+
+    [Header("Procedural Settings")]
+    public int spawnWeight = 1;
+
+    public bool canSpawnOnWater = false;
+    public bool mustSpawnOnWater = false;
+
+    // ============================================================
+    // Rotation Settings
+    // ============================================================
+
+    [Header("Rotation Settings")]
+    public bool useRandomRotation;
+
+    [HideInInspector] public bool randomRotationSteps;
+    [HideInInspector] public bool randomRotationFree;
+
+    // ============================================================
+    // Multi-Tile Settings
+    // ============================================================
+
+    [Header("Multi-Tile Settings")]
+    public bool isMultiTile = false;
+    public bool destroyAll = false;
+
+    [HideInInspector] public float boundingRadius = -1f;
+    [HideInInspector] public int editorGridSize = 5;
+
+    public List<MultiTileData> multiTileShape = new List<MultiTileData>();
+
+    [System.Obsolete("Use multiTileShape to get detailed layer information.")]
+    [HideInInspector] public List<Vector2Int> occupiedOffsets = new List<Vector2Int>();
+
+    // ============================================================
+    // Entity Settings
+    // ============================================================
+
+    [Header("Entity Settings")]
+    public EntityLayer entityType = EntityLayer.None;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    [System.NonSerialized] private int originalSpawnWeight = -1;
+
+    private void OnEnable() {
+
+        calculateBoundingRadius();
+
+    }
+
+    private void OnDisable() {
+
+        restoreOriginalWeight();
+
+    }
+
+    // ============================================================
+    // Multi-Tile Logic
+    // ============================================================
+
+    public MultiTileLayer getLayerAt(Vector2Int offset) {
+
+        if (multiTileShape == null) {
+
+            return MultiTileLayer.None;
+
+        }
+
+        MultiTileData foundData = multiTileShape.Find(dataItem => dataItem.offset == offset);
+
+        if (foundData != null) {
+
+            return foundData.layer;
+
+        }
+
+        else {
+
+            return MultiTileLayer.None;
+
+        }
+    }
+
+    public void sortShape() {
+
+        if (multiTileShape == null) {
+
+            return;
+
+        }
+
+        multiTileShape.Sort((firstItem, secondItem) => {
+
+            if (firstItem.offset.y != secondItem.offset.y) {
+
+                return firstItem.offset.y.CompareTo(secondItem.offset.y);
+
+            }
+
+            return firstItem.offset.x.CompareTo(secondItem.offset.x);
+
+        });
+    }
+
+    public void calculateBoundingRadius() {
+
+        float maximumDistanceSquared = 0f;
+
+        bool hasShapeData = multiTileShape != null && multiTileShape.Count > 0;
+
+        if (hasShapeData == true) {
+
+            foreach (MultiTileData shapePart in multiTileShape) {
+
+                float distanceSquared = shapePart.offset.sqrMagnitude;
+
+                if (distanceSquared > maximumDistanceSquared) {
+
+                    maximumDistanceSquared = distanceSquared;
+
+                }
+            }
+
+            boundingRadius = Mathf.Sqrt(maximumDistanceSquared);
+
+        }
+
+        else {
+
+            boundingRadius = 0f;
+
+        }
+
+        boundingRadius = boundingRadius + 1.0f;
+
+    }
+
+    // ============================================================
+    // State Management
+    // ============================================================
+
+    public void restoreOriginalWeight() {
+
+        if (originalSpawnWeight != -1) {
+
+            spawnWeight = originalSpawnWeight;
+
+        }
+    }
+}
