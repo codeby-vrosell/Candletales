@@ -1,0 +1,56 @@
+// ============================================================
+// Readme of WeatherEffect
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to configure and manage individual weather effects within the game.
+It acts as a data container that stores timing parameters, time-of-day restrictions, and references to the corresponding particle systems.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores a string identifier and the visual ParticleSystem prefab for the weather condition.
+- Defines the minimum and maximum active duration (in minutes) for the effect to remain active.
+- Provides a boolean flag to restrict the weather effect from occurring during the daytime.
+- Holds a hidden runtime reference to the spawned ParticleSystem instance.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class WeatherEffect {
+
+    // ============================================================
+    // General Settings
+    // ============================================================
+
+    public string effectName = "New Effect";
+    public ParticleSystem particlePrefab;
+
+    // ============================================================
+    // Timing Settings
+    // ============================================================
+
+    public float minimumDurationMinutes;
+    public float maximumDurationMinutes;
+
+    // ============================================================
+    // Environmental Conditions
+    // ============================================================
+
+    public bool onlyDuringNight = false;
+
+    // ============================================================
+    // Runtime State
+    // ============================================================
+
+    [HideInInspector] public ParticleSystem particleInstance;
+
+}
