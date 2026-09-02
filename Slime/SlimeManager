@@ -1,0 +1,328 @@
+// ============================================================
+// Readme of SlimeManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script governs the core interaction logic and lifecycle of the Slime entity on the procedural grid.
+It acts as an interactive hazard that swallows standard player dice, temporarily digests them to apply an empowered material, and violently spits them back out across the board using randomized physics impulses.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Queries the GridStateManager on startup to self-destruct if it was previously defeated.
+- Uses a trigger collider to detect un-empowered dice and initiates the eating sequence.
+- Disables the physics and colliders of the swallowed dice, parenting it to the Slime.
+- Handles the digestion timer, material swapping, and the subsequent randomized physics ejection (spitting).
+- Manages artificial spawn effects and its own death sequence, notifying the grid state manager upon destruction.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections;
+
+public class SlimeManager : MonoBehaviour {
+
+    // ============================================================
+    // Slime Settings
+    // ============================================================
+
+    [Header("Slime Settings")]
+    [SerializeField] private float digestionTime;
+    [SerializeField] private float spitCooldown;
+    [SerializeField] private float spitHeightOffset;
+
+    // ============================================================
+    // Physics Spit Settings
+    // ============================================================
+
+    [Header("Physics Spit Settings")]
+    [SerializeField] private Vector2 forceRange;
+    [SerializeField] private Vector2 torqueRange;
+
+    [Range(10f, 85f)]
+    [SerializeField] private float launchAngle;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private Vector3 defaultDiceScale;
+    private SlimeAnimations slimeAnimationsScript;
+    private bool isEating = false;
+    private GameObject currentDice;
+    private ParticleSystem slimeParticleSystem;
+    private bool isDead = false;
+
+    private void Awake() {
+
+        slimeAnimationsScript = GetComponent<SlimeAnimations>();
+        Transform particleSystemTransform = transform.Find("SlimeParticleSystem");
+        slimeParticleSystem = particleSystemTransform.GetComponent<ParticleSystem>();
+
+    }
+
+    private void Start() {
+
+        if (GridManager.Instance != null && GridStateManager.Instance != null) {
+
+            Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(transform.position);
+            bool isAlreadyDestroyed = GridStateManager.Instance.isSlimeDestroyedAt(gridPosition);
+
+            if (isAlreadyDestroyed == true) {
+
+                Destroy(gameObject);
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Interaction Logic
+    // ============================================================
+
+    private void OnTriggerEnter(Collider otherCollider) {
+
+        if (isEating == true) {
+
+            return;
+
+        }
+
+        if (otherCollider.attachedRigidbody != null) {
+
+            GameObject rootDiceObject = otherCollider.attachedRigidbody.gameObject;
+
+            if (rootDiceObject.layer == LayerMask.NameToLayer("Dice")) {
+
+                DiceScript diceScriptComponent = rootDiceObject.GetComponent<DiceScript>();
+
+                if (diceScriptComponent != null && diceScriptComponent.isEmpowered == false) {
+
+                    startEating(rootDiceObject);
+
+                }
+            }
+        }
+    }
+
+    private void startEating(GameObject targetDice) {
+
+        isEating = true;
+        currentDice = targetDice;
+        defaultDiceScale = targetDice.transform.localScale;
+
+        DiceScript diceScriptComponent = targetDice.GetComponent<DiceScript>();
+
+        if (diceScriptComponent != null) {
+
+            diceScriptComponent.lockResult = true;
+
+        }
+
+        Rigidbody diceRigidbody = targetDice.GetComponent<Rigidbody>();
+
+        if (diceRigidbody != null) {
+
+            diceRigidbody.isKinematic = true;
+            diceRigidbody.useGravity = false;
+
+        }
+
+        Collider diceColliderComponent = targetDice.GetComponent<Collider>();
+
+        if (diceColliderComponent != null) {
+
+            diceColliderComponent.enabled = false;
+
+        }
+
+        slimeParticleSystem.Play();
+        targetDice.transform.SetParent(this.transform);
+
+        // Change material to the empowered slime material
+        slimeAnimationsScript.playEatDiceAnimation(targetDice.transform, onEatFinished);
+
+    }
+
+    private void onEatFinished() {
+
+        if (currentDice != null) {
+
+            DiceScript diceScriptComponent = currentDice.GetComponent<DiceScript>();
+
+            if (diceScriptComponent != null) {
+
+                diceScriptComponent.floatInPlace = true;
+
+                bool hasMeshAndMaterial = diceScriptComponent.mainMeshRenderer != null && diceScriptComponent.empoweredMaterial != null;
+
+                if (hasMeshAndMaterial == true) {
+
+                    diceScriptComponent.mainMeshRenderer.material = diceScriptComponent.empoweredMaterial;
+
+                }
+            }
+        }
+
+        slimeAnimationsScript.playSquashAndStretch(() => { StartCoroutine(digestionRoutine()); });
+
+    }
+
+    private IEnumerator digestionRoutine() {
+
+        yield return new WaitForSeconds(digestionTime);
+
+        slimeAnimationsScript.playSquashAndStretch(null);
+        spitDice();
+
+    }
+
+    private void spitDice() {
+
+        if (currentDice == null) {
+
+            return;
+
+        }
+
+        slimeParticleSystem.Play();
+        currentDice.transform.SetParent(null);
+        currentDice.transform.localScale = defaultDiceScale;
+        currentDice.transform.position = currentDice.transform.position + (Vector3.up * spitHeightOffset);
+
+        DiceScript diceScriptComponent = currentDice.GetComponent<DiceScript>();
+
+        if (diceScriptComponent != null) {
+
+            diceScriptComponent.lockResult = false;
+            diceScriptComponent.isEmpowered = true;
+            diceScriptComponent.floatInPlace = false;
+            diceScriptComponent.hasBeenThrown = true;
+
+        }
+
+        Collider diceColliderComponent = currentDice.GetComponent<Collider>();
+
+        if (diceColliderComponent != null) {
+
+            diceColliderComponent.enabled = true;
+
+        }
+
+        Rigidbody diceRigidbody = currentDice.GetComponent<Rigidbody>();
+
+        if (diceRigidbody != null) {
+
+            diceRigidbody.isKinematic = false;
+            diceRigidbody.useGravity = true;
+            diceRigidbody.constraints = RigidbodyConstraints.None;
+            diceRigidbody.linearVelocity = Vector3.zero;
+            diceRigidbody.angularVelocity = Vector3.zero;
+
+            Vector2 randomCircleVector = Random.insideUnitCircle.normalized;
+            Vector3 baseDirection = new Vector3(randomCircleVector.x, 0f, randomCircleVector.y);
+            
+            float pitchRadians = launchAngle * Mathf.Deg2Rad;
+            Vector3 spitDirection = baseDirection + (Vector3.up * Mathf.Tan(pitchRadians));
+            spitDirection.Normalize();
+
+            float spitForce = Random.Range(forceRange.x, forceRange.y);
+            Vector3 spitTorque = new Vector3(Random.Range(-torqueRange.y, torqueRange.y), Random.Range(-torqueRange.y, torqueRange.y), Random.Range(-torqueRange.y, torqueRange.y));
+
+            diceRigidbody.AddForce(spitDirection * spitForce, ForceMode.Impulse);
+            diceRigidbody.AddTorque(spitTorque, ForceMode.Impulse);
+
+        }
+
+        currentDice = null;
+        StartCoroutine(resetEatingCooldown());
+
+    }
+
+    private IEnumerator resetEatingCooldown() {
+
+        yield return new WaitForSeconds(spitCooldown);
+        isEating = false;
+
+    }
+
+    // ============================================================
+    // Artificial Spawn & Death Methods
+    // ============================================================
+
+    public void triggerSpawnEffect() {
+
+        if (slimeAnimationsScript != null) {
+
+            slimeAnimationsScript.playSpawnAnimation(() => {
+
+                if (slimeParticleSystem != null) {
+
+                    slimeParticleSystem.gameObject.SetActive(true);
+                    slimeParticleSystem.Play();
+
+                }
+            });
+        }
+    }
+
+    public void handleDeath() {
+
+        if (isDead == true) {
+
+            return;
+
+        }
+
+        isDead = true;
+        Collider slimeCollider = GetComponent<Collider>();
+
+        if (slimeCollider != null) {
+
+            slimeCollider.enabled = false;
+
+        }
+
+        if (slimeParticleSystem != null) {
+
+            slimeParticleSystem.transform.SetParent(null);
+            slimeParticleSystem.transform.localScale = Vector3.one;
+            slimeParticleSystem.gameObject.SetActive(true);
+            slimeParticleSystem.Play();
+            
+            Destroy(slimeParticleSystem.gameObject, slimeParticleSystem.main.duration);
+
+        }
+
+        if (slimeAnimationsScript != null) {
+
+            slimeAnimationsScript.playDeathAnimation(deathAnimationFinished);
+
+        }
+
+        else {
+
+            deathAnimationFinished();
+
+        }
+    }
+
+    private void deathAnimationFinished() {
+
+        if (GridManager.Instance != null && GridStateManager.Instance != null) {
+
+            Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(transform.position);
+            GridStateManager.Instance.registerSlimeDestroyedAt(gridPosition);
+
+        }
+
+        Destroy(gameObject);
+
+    }
+}
