@@ -51,26 +51,26 @@ public class DebugPanel : MonoBehaviour {
     public float timeToHoldR;
 
     // ============================================================
-    // Internal State & References
+    // Component References
     // ============================================================
 
     private float time;
     private float rHoldTimer = 0f;
     private int frameCount;
 
-    private BiomeGenerator biomeGenerator;
-    private TotemsCandlesManager totemsCandlesManager;
+    private BiomeGenerator biomeGeneratorScript;
+    private TotemsCandlesManager totemsCandlesManagerScript;
     private Transform playerTransform;
 
     void Start() {
 
         if (GridManager.Instance != null) {
 
-            biomeGenerator = GridManager.Instance.GetComponent<BiomeGenerator>();
+            biomeGeneratorScript = GridManager.Instance.GetComponent<BiomeGenerator>();
 
         }
 
-        totemsCandlesManager = FindFirstObjectByType<TotemsCandlesManager>();
+        totemsCandlesManagerScript = FindFirstObjectByType<TotemsCandlesManager>();
 
     }
 
@@ -133,7 +133,7 @@ public class DebugPanel : MonoBehaviour {
 
             if (Input.GetKeyDown(KeyCode.W)) {
 
-                totemsCandlesManager.toggleAllTotems();
+                totemsCandlesManagerScript.toggleAllTotems();
 
             }
 
@@ -169,16 +169,16 @@ public class DebugPanel : MonoBehaviour {
 
     private void updateWorldData() {
 
-        if (biomeGenerator != null) {
+        if (biomeGeneratorScript != null) {
 
-            seedText.text = $"{biomeGenerator.seed}";
+            seedText.text = $"{biomeGeneratorScript.seed}";
 
         }
 
         else if (GridManager.Instance != null) {
 
             // Attempt to retrieve the generator again if it was missing
-            biomeGenerator = GridManager.Instance.GetComponent<BiomeGenerator>();
+            biomeGeneratorScript = GridManager.Instance.GetComponent<BiomeGenerator>();
 
         }
 
@@ -199,9 +199,9 @@ public class DebugPanel : MonoBehaviour {
 
             gridPositionText.text = $"{gridPosition}";
 
-            if (biomeGenerator != null) {
+            if (biomeGeneratorScript != null) {
 
-                BiomeConfig currentBiome = biomeGenerator.getBiomeConfigAt(gridPosition);
+                BiomeConfig currentBiome = biomeGeneratorScript.getBiomeConfigAt(gridPosition);
 
                 if (currentBiome != null) {
 
