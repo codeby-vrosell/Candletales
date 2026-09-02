@@ -86,7 +86,7 @@ public class DeathManager : MonoBehaviour {
     // ============================================================
 
     private TurnCycleManager turnCycleManager;
-    private SplineChainAnimations splineChainsAnimations;
+    private SplineChainAnimator splineChainsAnimatorScript;
     private CameraParallax cameraParallaxScript;
 
     private ChromaticAberration chromaticAberrationValue;
@@ -116,7 +116,7 @@ public class DeathManager : MonoBehaviour {
     private void Start() {
 
         turnCycleManager = FindFirstObjectByType<TurnCycleManager>();
-        splineChainsAnimations = FindFirstObjectByType<SplineChainAnimations>();
+        splineChainsAnimatorScript = FindFirstObjectByType<SplineChainAnimator>();
         cameraParallaxScript = FindFirstObjectByType<CameraParallax>();
 
         stainedEyeControllersArray = FindObjectsByType<StainedEyeController>(FindObjectsSortMode.None);
@@ -206,17 +206,17 @@ public class DeathManager : MonoBehaviour {
             }
         }
 
-        if (splineChainsAnimations != null) {
+        if (splineChainsAnimatorScript != null) {
 
-            splineChainsAnimations.removeAllCombatChains();
+            splineChainsAnimatorScript.removeAllCombatChains();
 
         }
 
         yield return new WaitForSeconds(delayBeforeChains);
 
-        if (splineChainsAnimations != null) {
+        if (splineChainsAnimatorScript != null) {
 
-            splineChainsAnimations.playAllDeathChains();
+            splineChainsAnimatorScript.playAllDeathChains();
 
         }
 
@@ -258,15 +258,15 @@ public class DeathManager : MonoBehaviour {
 
         float[] impactTimesArray = new float[0];
 
-        bool hasDeathChains = splineChainsAnimations != null && splineChainsAnimations.deathChainsArray != null;
+        bool hasDeathChains = splineChainsAnimatorScript != null && splineChainsAnimatorScript.deathChainsArray != null;
 
         if (hasDeathChains == true) {
 
-            impactTimesArray = new float[splineChainsAnimations.deathChainsArray.Length];
+            impactTimesArray = new float[splineChainsAnimatorScript.deathChainsArray.Length];
 
             for (int index = 0; index < impactTimesArray.Length; index = index + 1) {
 
-                var chainElement = splineChainsAnimations.deathChainsArray[index];
+                var chainElement = splineChainsAnimatorScript.deathChainsArray[index];
 
                 if (chainElement != null) {
 
@@ -351,9 +351,9 @@ public class DeathManager : MonoBehaviour {
 
         cameraTransform.position = targetPosition;
 
-        if (splineChainsAnimations != null) {
+        if (splineChainsAnimatorScript != null) {
 
-            splineChainsAnimations.removeAllDeathChains();
+            splineChainsAnimatorScript.removeAllDeathChains();
 
         }
     }
