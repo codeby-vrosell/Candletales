@@ -56,19 +56,19 @@ public class SpawnManager : MonoBehaviour {
     // Internal State & Component References
     // ============================================================
 
-    private GridAnimations gridAnimationScript;
+    private GridAnimator gridAnimatorScript;
     private GridHighlighter gridHighlighterScript;
     private EntityFaller playerFallerScript;
-    private TotemsCandlesAnimations totemsCandlesAnimationsScript;
-    private TurnCounterAnimations turnCounterAnimationsScript;
+    private TotemsCandlesAnimator totemsCandlesAnimatorScript;
+    private TurnCounterAnimator turnCounterAnimatorScript;
     private TurnCycleManager turnCycleManagerScript;
 
     private void Start() {
 
-        gridAnimationScript = FindFirstObjectByType<GridAnimations>();
+        gridAnimatorScript = FindFirstObjectByType<GridAnimator>();
         gridHighlighterScript = FindFirstObjectByType<GridHighlighter>();
-        totemsCandlesAnimationsScript = FindFirstObjectByType<TotemsCandlesAnimations>();
-        turnCounterAnimationsScript = FindFirstObjectByType<TurnCounterAnimations>();
+        totemsCandlesAnimatorScript = FindFirstObjectByType<TotemsCandlesAnimator>();
+        turnCounterAnimatorScript = FindFirstObjectByType<TurnCounterAnimator>();
         turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
 
         GridManager gridManagerInstance = FindFirstObjectByType<GridManager>();
@@ -126,9 +126,9 @@ public class SpawnManager : MonoBehaviour {
         }
 
         // 1. WAIT FOR GRID
-        if (gridAnimationScript != null) {
+        if (gridAnimatorScript != null) {
 
-            while (gridAnimationScript.gridSpawnAnimationEnded == false) {
+            while (gridAnimatorScript.gridSpawnAnimationEnded == false) {
 
                 yield return null;
 
@@ -136,13 +136,13 @@ public class SpawnManager : MonoBehaviour {
         }
 
         // 2. LAUNCH TOTEMS AND CANDLES AND WAIT FOR THEM TO FINISH
-        if (totemsCandlesAnimationsScript != null) {
+        if (totemsCandlesAnimatorScript != null) {
 
-            totemsCandlesAnimationsScript.playSpawnTotemsCandlesAnimation();
+            totemsCandlesAnimatorScript.playSpawnTotemsCandlesAnimation();
 
             float totemTimer = 0f;
 
-            while (totemsCandlesAnimationsScript.isAnimating == true && totemTimer < 8f) {
+            while (totemsCandlesAnimatorScript.isAnimating == true && totemTimer < 8f) {
 
                 totemTimer = totemTimer + Time.deltaTime;
                 yield return null;
@@ -204,10 +204,10 @@ public class SpawnManager : MonoBehaviour {
 
         }
 
-        if (turnCounterAnimationsScript != null) {
+        if (turnCounterAnimatorScript != null) {
 
-            turnCounterAnimationsScript.showMarks = true;
-            turnCounterAnimationsScript.updateMarksVisuals();
+            turnCounterAnimatorScript.showMarks = true;
+            turnCounterAnimatorScript.updateMarksVisuals();
 
         }
 
