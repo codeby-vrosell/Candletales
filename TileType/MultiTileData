@@ -1,0 +1,35 @@
+// ============================================================
+// Readme of MultiTileData
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to map individual grid offsets to specific tile behaviors within a larger multi-tile shape.
+It serves as a foundational data container utilized by the TileType system and the custom TileTypeEditor to construct complex, multi-cell obstacles and entities.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the spatial grid offset of a specific tile relative to the main anchor point of the multi-tile shape.
+- Holds the MultiTileLayer enum configuration for that specific offset, determining its collision and spawn rules.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class MultiTileData {
+
+    // ============================================================
+    // Tile Configuration
+    // ============================================================
+
+    public Vector2Int offset;
+    public MultiTileLayer layer;
+
+}
