@@ -1,0 +1,247 @@
+// ============================================================
+// Readme of MarineAnimalController
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the procedural visual behavior of marine ambient life (like fishes or jellyfish) swimming beneath the water tiles of the modular grid.
+It manages their organic meandering movement, randomizes their emissive colors for visual variety, and scales them up or down synchronously with the grid cells they swim under.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Initializes random movement parameters (depth, speed, meander frequency) and emissive HDR colors.
+- Computes organic swimming motion using sinusoidal math applied to the entity's forward vector.
+- Syncs the entity's scale with the grid cell above it, ensuring it only appears if the water tile is fully rendered.
+- Smoothly scales down and disables the GameObject during the despawn process or when the grid recenters.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class MarineAnimalController : MonoBehaviour {
+
+    // ============================================================
+    // Color Settings
+    // ============================================================
+
+    [Header("Color Settings")]
+    [ColorUsage(true, true)] public Color[] possibleColors;
+    public Vector2 emissionIntensityRange = new Vector2(1f, 3f);
+
+    // ============================================================
+    // Movement Settings
+    // ============================================================
+
+    [Header("Movement Settings")]
+    public Vector2 speedRange = new Vector2(1f, 2f);
+    public Vector2 depthRange = new Vector2(-0.4f, -0.7f);
+    public Vector2 meanderMagnitudeRange = new Vector2(15f, 30f);
+    public Vector2 meanderFrequencyRange = new Vector2(0.5f, 1.2f);
+
+    // ============================================================
+    // Size Settings
+    // ============================================================
+
+    [Header("Size Settings")]
+    public Vector2 scaleRange = new Vector2(0.8f, 1.2f);
+
+    // ============================================================
+    // Component References
+    // ============================================================
+
+    private Renderer animalRenderer;
+    private GridAnimations gridAnimationsScript;
+    private MaterialPropertyBlock propertyBlock;
+    private Animator animalAnimator;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private float currentSpeed;
+    private float targetMaximumScale;
+    private float currentScale;
+    private float scaleSpeed;
+    private float meanderMagnitude;
+    private float meanderFrequency;
+    private float timeOffset;
+    private Vector3 baseDirection;
+
+    public bool isDespawning { get; private set; }
+
+    private void Awake() {
+
+        animalRenderer = GetComponentInChildren<Renderer>();
+        animalAnimator = GetComponentInChildren<Animator>();
+
+    }
+
+    private void Update() {
+
+        float driftAngle = Mathf.Sin((Time.time + timeOffset) * meanderFrequency) * meanderMagnitude;
+        Vector3 actualDirection = Quaternion.Euler(0f, driftAngle, 0f) * baseDirection;
+
+        transform.rotation = Quaternion.LookRotation(actualDirection);
+        transform.position = transform.position + (transform.forward * currentSpeed * Time.deltaTime);
+
+        updateScale();
+
+    }
+
+    public void initialize(Vector3 direction, float animationScaleSpeed) {
+
+        baseDirection = direction;
+        scaleSpeed = animationScaleSpeed;
+
+        currentSpeed = Random.Range(speedRange.x, speedRange.y);
+
+        if (animalAnimator != null) {
+
+            float normalizedSpeed = currentSpeed / speedRange.x;
+            animalAnimator.speed = Mathf.Lerp(1f, 1.5f, (currentSpeed - speedRange.x) / (speedRange.y - speedRange.x));
+
+        }
+
+        targetMaximumScale = Random.Range(scaleRange.x, scaleRange.y);
+        meanderMagnitude = Random.Range(meanderMagnitudeRange.x, meanderMagnitudeRange.y);
+        meanderFrequency = Random.Range(meanderFrequencyRange.x, meanderFrequencyRange.y);
+        timeOffset = Random.Range(0f, 100f);
+
+        float randomDepth = Random.Range(depthRange.x, depthRange.y);
+
+        Vector3 startingPosition = transform.position;
+        startingPosition.y = startingPosition.y + randomDepth;
+        transform.position = startingPosition;
+
+        currentScale = 0f;
+        transform.localScale = Vector3.zero;
+        isDespawning = false;
+
+        if (animalRenderer != null) {
+
+            animalRenderer.enabled = true;
+
+        }
+
+        assignRandomColor();
+
+    }
+
+    private void assignRandomColor() {
+
+        if (possibleColors == null) {
+
+            return;
+
+        }
+
+        if (possibleColors.Length == 0) {
+
+            return;
+
+        }
+
+        if (animalRenderer == null) {
+
+            return;
+
+        }
+
+        if (propertyBlock == null) {
+
+            propertyBlock = new MaterialPropertyBlock();
+
+        }
+
+        Color baseColor = possibleColors[Random.Range(0, possibleColors.Length)];
+        float randomIntensity = Random.Range(emissionIntensityRange.x, emissionIntensityRange.y);
+
+        Color highDynamicRangeColor = new Color(baseColor.r * randomIntensity, baseColor.g * randomIntensity, baseColor.b * randomIntensity, baseColor.a);
+
+        animalRenderer.GetPropertyBlock(propertyBlock);
+
+        propertyBlock.SetColor("_EmissiveColor", highDynamicRangeColor);
+        propertyBlock.SetColor("_EmissionColor", highDynamicRangeColor);
+
+        animalRenderer.SetPropertyBlock(propertyBlock);
+
+    }
+
+    public void startDespawn() {
+
+        isDespawning = true;
+
+    }
+
+    private void updateScale() {
+
+        float targetScale = 0f;
+        bool hasValidCell = false;
+
+        if (isDespawning == false) {
+
+            if (GridManager.Instance != null) {
+
+                Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(transform.position);
+
+                bool cellExists = GridManager.Instance.tryGetCells(gridPosition, out Cell currentCell);
+
+                if (cellExists == true) {
+
+                    if (currentCell.visual != null) {
+
+                        if (currentCell.visual.transform.localScale.x > 0.95f) {
+
+                            targetScale = targetMaximumScale;
+                            hasValidCell = true;
+
+                        }
+                    }
+                }
+            }
+        }
+
+        if (gridAnimationsScript == null && GridManager.Instance != null) {
+
+            gridAnimationsScript = GridManager.Instance.GetComponent<GridAnimations>();
+
+        }
+
+        bool isRecentering = false;
+
+        if (gridAnimationsScript != null && gridAnimationsScript.centerAnimationEnded == false) {
+
+            isRecentering = true;
+
+        }
+
+        if (isRecentering == true && hasValidCell == false) {
+
+            currentScale = 0f;
+
+        }
+
+        else {
+
+            currentScale = Mathf.MoveTowards(currentScale, targetScale, scaleSpeed * Time.deltaTime);
+
+        }
+
+        transform.localScale = Vector3.one * currentScale;
+
+        if (isDespawning == true) {
+
+            if (currentScale <= 0f) {
+
+                gameObject.SetActive(false);
+
+            }
+        }
+    }
+}
