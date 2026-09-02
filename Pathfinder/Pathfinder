@@ -1,0 +1,359 @@
+// ============================================================
+// Readme of Pathfinder
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script provides a static implementation of the A* (A-Star) pathfinding algorithm adapted for a 2D grid environment.
+It is responsible for calculating the most efficient traversal routes for the player and enemies, taking into account cell movement costs, physical obstacles, and current entity occupation states.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Evaluates grid cells to find the optimal path from a start position to a goal position.
+- Applies Manhattan distance heuristics mixed with custom tile movement costs to determine route efficiency.
+- Provides variations of the pathfinding logic to ignore certain obstacles (e.g., for flying or incorporeal entities).
+- Utilizes tie-breaker bonuses based on tile speed multipliers to prioritize aesthetically or mechanically preferred routes.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using System.Collections.Generic;
+
+public class Pathfinder {
+
+    // ============================================================
+    // Standard Pathfinding
+    // ============================================================
+
+    public static List<Vector2Int> findPath(Vector2Int startPosition, Vector2Int goalPosition, Dictionary<Vector2Int, Cell> gridDictionary) {
+
+        List<Vector2Int> openSetList = new List<Vector2Int> { startPosition };
+        Dictionary<Vector2Int, Vector2Int> cameFromDictionary = new Dictionary<Vector2Int, Vector2Int>();
+
+        Dictionary<Vector2Int, float> costFromStartDictionary = new Dictionary<Vector2Int, float>();
+        Dictionary<Vector2Int, float> estimatedTotalCostDictionary = new Dictionary<Vector2Int, float>();
+
+        costFromStartDictionary[startPosition] = 0f;
+        estimatedTotalCostDictionary[startPosition] = heuristic(startPosition, goalPosition);
+
+        while (openSetList.Count > 0) {
+
+            Vector2Int currentPosition = openSetList[0];
+
+            foreach (Vector2Int evaluatedPosition in openSetList) {
+
+                bool containsEvaluatedPosition = estimatedTotalCostDictionary.ContainsKey(evaluatedPosition);
+
+                if (containsEvaluatedPosition == true) {
+
+                    if (estimatedTotalCostDictionary[evaluatedPosition] < estimatedTotalCostDictionary[currentPosition]) {
+
+                        currentPosition = evaluatedPosition;
+
+                    }
+                }
+            }
+
+            if (currentPosition == goalPosition) {
+
+                return reconstructPath(cameFromDictionary, currentPosition);
+
+            }
+
+            openSetList.Remove(currentPosition);
+
+            List<Vector2Int> neighborsList = getNeighbors(currentPosition);
+
+            foreach (Vector2Int neighborPosition in neighborsList) {
+
+                Cell neighborCell;
+                bool cellExists = gridDictionary.TryGetValue(neighborPosition, out neighborCell);
+
+                if (cellExists == false) {
+
+                    continue;
+
+                }
+
+                if (neighborCell.isWalkable == false) {
+
+                    continue;
+
+                }
+
+                if (neighborCell.currentStateOfCell == Cell.stateOfCell.occupied) {
+
+                    continue;
+
+                }
+
+                if (neighborCell.visual == null) {
+
+                    continue;
+
+                }
+
+                float tieBreakerBonus = neighborCell.speedMultiplier * 0.0001f;
+                float tentativeCostFromStart = costFromStartDictionary[currentPosition] + neighborCell.movementCost - tieBreakerBonus;
+
+                bool hasCostRegistered = costFromStartDictionary.ContainsKey(neighborPosition);
+
+                if (hasCostRegistered == false || tentativeCostFromStart < costFromStartDictionary[neighborPosition]) {
+
+                    cameFromDictionary[neighborPosition] = currentPosition;
+                    costFromStartDictionary[neighborPosition] = tentativeCostFromStart;
+                    estimatedTotalCostDictionary[neighborPosition] = tentativeCostFromStart + heuristic(neighborPosition, goalPosition);
+
+                    bool isInOpenSet = openSetList.Contains(neighborPosition);
+
+                    if (isInOpenSet == false) {
+
+                        openSetList.Add(neighborPosition);
+
+                    }
+                }
+            }
+        }
+
+        return new List<Vector2Int>();
+
+    }
+
+    // ============================================================
+    // Pathfinding (Ignore Collisions)
+    // ============================================================
+
+    public static List<Vector2Int> findPathIgnoreNoWalkableAndOccupied(Vector2Int startPosition, Vector2Int goalPosition, Dictionary<Vector2Int, Cell> gridDictionary) {
+
+        List<Vector2Int> openSetList = new List<Vector2Int> { startPosition };
+        Dictionary<Vector2Int, Vector2Int> cameFromDictionary = new Dictionary<Vector2Int, Vector2Int>();
+
+        Dictionary<Vector2Int, float> costFromStartDictionary = new Dictionary<Vector2Int, float>();
+        Dictionary<Vector2Int, float> estimatedTotalCostDictionary = new Dictionary<Vector2Int, float>();
+
+        costFromStartDictionary[startPosition] = 0f;
+        estimatedTotalCostDictionary[startPosition] = heuristic(startPosition, goalPosition);
+
+        while (openSetList.Count > 0) {
+
+            Vector2Int currentPosition = openSetList[0];
+
+            foreach (Vector2Int evaluatedPosition in openSetList) {
+
+                bool containsEvaluatedPosition = estimatedTotalCostDictionary.ContainsKey(evaluatedPosition);
+
+                if (containsEvaluatedPosition == true) {
+
+                    if (estimatedTotalCostDictionary[evaluatedPosition] < estimatedTotalCostDictionary[currentPosition]) {
+
+                        currentPosition = evaluatedPosition;
+
+                    }
+                }
+            }
+
+            if (currentPosition == goalPosition) {
+
+                return reconstructPath(cameFromDictionary, currentPosition);
+
+            }
+
+            openSetList.Remove(currentPosition);
+
+            List<Vector2Int> neighborsList = getNeighbors(currentPosition);
+
+            foreach (Vector2Int neighborPosition in neighborsList) {
+
+                Cell neighborCell;
+                bool cellExists = gridDictionary.TryGetValue(neighborPosition, out neighborCell);
+
+                if (cellExists == false) {
+
+                    continue;
+
+                }
+
+                float tieBreakerBonus = neighborCell.speedMultiplier * 0.0001f;
+                float tentativeCostFromStart = costFromStartDictionary[currentPosition] + neighborCell.movementCost - tieBreakerBonus;
+
+                bool hasCostRegistered = costFromStartDictionary.ContainsKey(neighborPosition);
+
+                if (hasCostRegistered == false || tentativeCostFromStart < costFromStartDictionary[neighborPosition]) {
+
+                    cameFromDictionary[neighborPosition] = currentPosition;
+                    costFromStartDictionary[neighborPosition] = tentativeCostFromStart;
+                    estimatedTotalCostDictionary[neighborPosition] = tentativeCostFromStart + heuristic(neighborPosition, goalPosition);
+
+                    bool isInOpenSet = openSetList.Contains(neighborPosition);
+
+                    if (isInOpenSet == false) {
+
+                        openSetList.Add(neighborPosition);
+
+                    }
+                }
+            }
+        }
+
+        return new List<Vector2Int>();
+
+    }
+
+    // ============================================================
+    // Pathfinding (Ignore Walkable Data Only)
+    // ============================================================
+
+    public static List<Vector2Int> findPathIgnoreNoWalkable(Vector2Int startPosition, Vector2Int goalPosition, Dictionary<Vector2Int, Cell> gridDictionary) {
+
+        List<Vector2Int> openSetList = new List<Vector2Int> { startPosition };
+        Dictionary<Vector2Int, Vector2Int> cameFromDictionary = new Dictionary<Vector2Int, Vector2Int>();
+
+        Dictionary<Vector2Int, float> costFromStartDictionary = new Dictionary<Vector2Int, float>();
+        Dictionary<Vector2Int, float> estimatedTotalCostDictionary = new Dictionary<Vector2Int, float>();
+
+        costFromStartDictionary[startPosition] = 0f;
+        estimatedTotalCostDictionary[startPosition] = heuristic(startPosition, goalPosition);
+
+        PlayerControllerBase playerScript = GameObject.FindFirstObjectByType<PlayerControllerBase>();
+
+        while (openSetList.Count > 0) {
+
+            Vector2Int currentPosition = openSetList[0];
+
+            foreach (Vector2Int evaluatedPosition in openSetList) {
+
+                bool containsEvaluatedPosition = estimatedTotalCostDictionary.ContainsKey(evaluatedPosition);
+
+                if (containsEvaluatedPosition == true) {
+
+                    if (estimatedTotalCostDictionary[evaluatedPosition] < estimatedTotalCostDictionary[currentPosition]) {
+
+                        currentPosition = evaluatedPosition;
+
+                    }
+                }
+            }
+
+            if (currentPosition == goalPosition) {
+
+                return reconstructPath(cameFromDictionary, currentPosition);
+
+            }
+
+            openSetList.Remove(currentPosition);
+
+            List<Vector2Int> neighborsList = getNeighbors(currentPosition);
+
+            foreach (Vector2Int neighborPosition in neighborsList) {
+
+                Cell neighborCell;
+                bool cellExists = gridDictionary.TryGetValue(neighborPosition, out neighborCell);
+
+                if (cellExists == false) {
+
+                    continue;
+
+                }
+
+                bool isOccupiedByAnother = neighborCell.currentStateOfCell == Cell.stateOfCell.occupied && neighborCell.gridPosition != playerScript.currentGridPosition;
+                
+                if (isOccupiedByAnother == true) {
+
+                    continue;
+
+                }
+
+                if (neighborCell.occupiedByEntity == true) {
+
+                    continue;
+
+                }
+
+                if (neighborCell.visual == null) {
+
+                    continue;
+
+                }
+
+                float tieBreakerBonus = neighborCell.speedMultiplier * 0.0001f;
+                float tentativeCostFromStart = costFromStartDictionary[currentPosition] + neighborCell.movementCost - tieBreakerBonus;
+
+                bool hasCostRegistered = costFromStartDictionary.ContainsKey(neighborPosition);
+
+                if (hasCostRegistered == false || tentativeCostFromStart < costFromStartDictionary[neighborPosition]) {
+
+                    cameFromDictionary[neighborPosition] = currentPosition;
+                    costFromStartDictionary[neighborPosition] = tentativeCostFromStart;
+                    estimatedTotalCostDictionary[neighborPosition] = tentativeCostFromStart + heuristic(neighborPosition, goalPosition);
+
+                    bool isInOpenSet = openSetList.Contains(neighborPosition);
+
+                    if (isInOpenSet == false) {
+
+                        openSetList.Add(neighborPosition);
+
+                    }
+                }
+            }
+        }
+
+        return new List<Vector2Int>();
+
+    }
+
+    // ============================================================
+    // Helper Methods
+    // ============================================================
+
+    private static int heuristic(Vector2Int positionA, Vector2Int positionB) {
+
+        return Mathf.Abs(positionA.x - positionB.x) + Mathf.Abs(positionA.y - positionB.y);
+
+    }
+
+    private static List<Vector2Int> reconstructPath(Dictionary<Vector2Int, Vector2Int> cameFromDictionary, Vector2Int currentPosition) {
+
+        List<Vector2Int> finalPathList = new List<Vector2Int> {
+            currentPosition
+        };
+
+        while (cameFromDictionary.ContainsKey(currentPosition) == true) {
+
+            currentPosition = cameFromDictionary[currentPosition];
+            finalPathList.Insert(0, currentPosition);
+
+        }
+
+        return finalPathList;
+
+    }
+
+    private static List<Vector2Int> getNeighbors(Vector2Int centerPosition) {
+
+        List<Vector2Int> neighborResultsList = new List<Vector2Int>();
+
+        Vector2Int[] directionVectorsArray = new Vector2Int[] {
+
+            new Vector2Int(1, 0), 
+            new Vector2Int(-1, 0), 
+            new Vector2Int(0, 1), 
+            new Vector2Int(0, -1) 
+
+        };
+
+        foreach (Vector2Int directionVector in directionVectorsArray) {
+
+            neighborResultsList.Add(centerPosition + directionVector);
+
+        }
+
+        return neighborResultsList;
+
+    }
+}
