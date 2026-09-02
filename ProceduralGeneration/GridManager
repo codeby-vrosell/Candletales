@@ -62,10 +62,10 @@ public class GridManager : MonoBehaviour {
     // Component References
     // ============================================================
 
-    private PlayerControllerBase playerController;
-    private GridAnimations gridAnimations;
-    private GridHighlighter gridHighlighter;
-    private BiomeGenerator biomeGenerator;
+    private PlayerControllerBase playerControllerBaseScript;
+    private GridAnimator gridAnimatorScript;
+    private GridHighlighter gridHighlighterScript;
+    private BiomeGenerator biomeGeneratorScript;
 
     // ============================================================
     // Internal State
@@ -92,8 +92,8 @@ public class GridManager : MonoBehaviour {
 
     void Awake() {
 
-        biomeGenerator = GetComponent<BiomeGenerator>();
-        gridHighlighter = GetComponent<GridHighlighter>();
+        biomeGeneratorScript = GetComponent<BiomeGenerator>();
+        gridHighlighterScript = GetComponent<GridHighlighter>();
 
         if (Instance == null) {
 
@@ -112,13 +112,13 @@ public class GridManager : MonoBehaviour {
 
         generateGrid();
 
-        if (gridAnimations == null) {
+        if (gridAnimatorScript == null) {
 
-            gridAnimations = GetComponent<GridAnimations>();
+            gridAnimatorScript = GetComponent<GridAnimator>();
 
         }
 
-        gridAnimations.playSpawnGridAnimation(Vector2Int.zero);
+        gridAnimatorScript.playSpawnGridAnimation(Vector2Int.zero);
 
     }
 
@@ -150,7 +150,7 @@ public class GridManager : MonoBehaviour {
 
     private void generateGrid() {
 
-        biomeGenerator.clearFrameCache();
+        biomeGeneratorScript.clearFrameCache();
         obstacleValidationCache.Clear();
         cells.Clear();
         reservedPositions.Clear();
@@ -173,7 +173,7 @@ public class GridManager : MonoBehaviour {
 
     private void createCellAt(Vector2Int gridPosition) {
 
-        BiomeCellData currentCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+        BiomeCellData currentCellData = biomeGeneratorScript.getBiomeDataAt(gridPosition);
 
         bool isObstacleDestroyed = GridStateManager.Instance.isObstacleDestroyedAt(gridPosition);
         bool isEntityDestroyed = GridStateManager.Instance.isEntityDestroyedAt(gridPosition);
@@ -502,7 +502,7 @@ public class GridManager : MonoBehaviour {
 
             if (targetCell.layerType == MultiTileLayer.forceEnemySpawn) {
 
-                biomeSuggestedEnemy = biomeGenerator.getForcedEnemyAt(gridPosition);
+                biomeSuggestedEnemy = biomeGeneratorScript.getForcedEnemyAt(gridPosition);
 
             }
 
@@ -578,7 +578,7 @@ public class GridManager : MonoBehaviour {
 
             if (targetCell.layerType == MultiTileLayer.forceEntitySpawn) {
 
-                currentCellData.entityType = biomeGenerator.getForcedEntityAt(gridPosition);
+                currentCellData.entityType = biomeGeneratorScript.getForcedEntityAt(gridPosition);
 
             }
 
@@ -655,7 +655,7 @@ public class GridManager : MonoBehaviour {
 
     private void createCleanCellAt(Vector2Int gridPosition) {
 
-        BiomeCellData currentCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+        BiomeCellData currentCellData = biomeGeneratorScript.getBiomeDataAt(gridPosition);
         TileType floorType = currentCellData.groundType;
 
         Cell targetCell = new Cell(gridPosition, floorType);
@@ -711,9 +711,9 @@ public class GridManager : MonoBehaviour {
             createCleanCellAt(gridPosition);
 
             // Refresh the pathing and hover visuals
-            if (gridHighlighter != null) {
+            if (gridHighlighterScript != null) {
 
-                gridHighlighter.refreshHoverAndPath();
+                gridHighlighterScript.refreshHoverAndPath();
 
             }
         }
@@ -775,7 +775,7 @@ public class GridManager : MonoBehaviour {
                 }
 
                 Vector2Int potentialAnchorPosition = myPosition + new Vector2Int(x, y);
-                BiomeCellData neighborData = biomeGenerator.getBiomeDataAt(potentialAnchorPosition);
+                BiomeCellData neighborData = biomeGeneratorScript.getBiomeDataAt(potentialAnchorPosition);
 
                 if (neighborData.obstacleType != null && neighborData.obstacleType.isMultiTile == true) {
 
@@ -989,13 +989,13 @@ public class GridManager : MonoBehaviour {
 
             float maximumDistanceToCenter = Mathf.Max(Mathf.Abs(targetWorldPosition.x), Mathf.Abs(targetWorldPosition.y));
 
-            if (maximumDistanceToCenter <= biomeGenerator.obstaclesSafeZone) {
+            if (maximumDistanceToCenter <= biomeGeneratorScript.obstaclesSafeZone) {
 
                 return false;
 
             }
 
-            BiomeCellData partCellData = biomeGenerator.getBiomeDataAt(targetWorldPosition);
+            BiomeCellData partCellData = biomeGeneratorScript.getBiomeDataAt(targetWorldPosition);
             bool isPartWater = false;
 
             if (partCellData.groundType != null && partCellData.groundType.isWater == true) {
@@ -1051,7 +1051,7 @@ public class GridManager : MonoBehaviour {
                 }
 
                 Vector2Int potentialEnemyAnchorPosition = anchorPosition + new Vector2Int(x, y);
-                BiomeCellData enemyCellData = biomeGenerator.getBiomeDataAt(potentialEnemyAnchorPosition);
+                BiomeCellData enemyCellData = biomeGeneratorScript.getBiomeDataAt(potentialEnemyAnchorPosition);
 
                 if (enemyCellData.obstacleType != null && enemyCellData.obstacleType.isMultiTile == true) {
 
@@ -1196,7 +1196,7 @@ public class GridManager : MonoBehaviour {
 
     private void findPlayer() {
 
-        if (playerController == null) {
+        if (playerControllerBaseScript == null) {
 
             GameObject foundPlayer = GameObject.FindWithTag("Player");
             GameObject playerObject = null;
@@ -1209,7 +1209,7 @@ public class GridManager : MonoBehaviour {
 
             if (playerObject != null) {
 
-                playerController = playerObject.GetComponent<PlayerControllerBase>();
+                playerControllerBaseScript = playerObject.GetComponent<PlayerControllerBase>();
 
             }
         }
@@ -1217,25 +1217,25 @@ public class GridManager : MonoBehaviour {
 
     public void automaticCenter() {
 
-        if (gridAnimations != null) {
+        if (gridAnimatorScript != null) {
 
-            if (lastStopCenterState == true && gridAnimations.stopCenter == false) {
+            if (lastStopCenterState == true && gridAnimatorScript.stopCenter == false) {
 
-                if (playerController != null) {
+                if (playerControllerBaseScript != null) {
 
-                    recenterGrid(playerController.getCurrentGridPos());
+                    recenterGrid(playerControllerBaseScript.getCurrentGridPos());
 
                 }
             }
 
-            lastStopCenterState = gridAnimations.stopCenter;
+            lastStopCenterState = gridAnimatorScript.stopCenter;
 
         }
     }
 
     public void recenterGrid(Vector2Int playerGridPosition) {
 
-        if (gridAnimations.stopCenter == true) {
+        if (gridAnimatorScript.stopCenter == true) {
 
             return;
 
@@ -1243,7 +1243,7 @@ public class GridManager : MonoBehaviour {
 
         if (gridCenter == playerGridPosition) {
 
-            gridAnimations.centerAnimationEnded = true;
+            gridAnimatorScript.centerAnimationEnded = true;
             return;
 
         }
@@ -1253,13 +1253,13 @@ public class GridManager : MonoBehaviour {
         Vector3 targetPosition = -new Vector3(gridCenter.x * cellSize, 0f, gridCenter.y * cellSize);
         Vector3 shiftVector = targetPosition - transform.position;
 
-        gridAnimations.playCenterGridAnimation(targetPosition, shiftVector, null, updateDuringMove: true);
+        gridAnimatorScript.playCenterGridAnimation(targetPosition, shiftVector, null, updateDuringMove: true);
 
     }
 
     public void updateGridCellsPartial() {
 
-        biomeGenerator.clearFrameCache();
+        biomeGeneratorScript.clearFrameCache();
         obstacleValidationCache.Clear();
 
         int halfWidth = visibleWidth / 2;
@@ -1279,7 +1279,7 @@ public class GridManager : MonoBehaviour {
 
                 if (keyValuePair.Value.visual != null) {
 
-                    StartCoroutine(gridAnimations.unscaleCell(keyValuePair.Value.visual, 0f));
+                    StartCoroutine(gridAnimatorScript.unscaleCell(keyValuePair.Value.visual, 0f));
 
                 }
             }
@@ -1329,7 +1329,7 @@ public class GridManager : MonoBehaviour {
 
         if (recentlyCreatedCells.Count > 0) {
 
-            gridAnimations.playNewCellsAnimation(recentlyCreatedCells);
+            gridAnimatorScript.playNewCellsAnimation(recentlyCreatedCells);
 
         }
     }
@@ -1398,9 +1398,9 @@ public class GridManager : MonoBehaviour {
                 targetCell.layerType = MultiTileLayer.None;
                 targetCell.isWalkable = true;
 
-                if (gridHighlighter != null) {
+                if (gridHighlighterScript != null) {
 
-                    gridHighlighter.refreshHoverAndPath();
+                    gridHighlighterScript.refreshHoverAndPath();
 
                 }
 
@@ -1449,9 +1449,9 @@ public class GridManager : MonoBehaviour {
                 }
             }
 
-            if (gridHighlighter != null) {
+            if (gridHighlighterScript != null) {
 
-                gridHighlighter.refreshHoverAndPath();
+                gridHighlighterScript.refreshHoverAndPath();
 
             }
         }
@@ -1601,7 +1601,7 @@ public class GridManager : MonoBehaviour {
 
     public TileType getPredictedEnemyAt(Vector2Int gridPosition) {
 
-        BiomeCellData targetCellData = biomeGenerator.getBiomeDataAt(gridPosition);
+        BiomeCellData targetCellData = biomeGeneratorScript.getBiomeDataAt(gridPosition);
 
         if (GridStateManager.Instance != null) {
 
@@ -1732,7 +1732,7 @@ public class GridManager : MonoBehaviour {
 
         if (detectedLayer == MultiTileLayer.forceEnemySpawn) {
 
-            biomeSuggestedEnemy = biomeGenerator.getForcedEnemyAt(gridPosition);
+            biomeSuggestedEnemy = biomeGeneratorScript.getForcedEnemyAt(gridPosition);
 
         }
 
