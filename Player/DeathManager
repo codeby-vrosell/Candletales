@@ -1,0 +1,405 @@
+// ============================================================
+// Readme of DeathManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as a global singleton that orchestrates the sequence of events triggered upon the player's death.
+It disables gameplay systems, manipulates High Definition Render Pipeline (HDRP) volume overrides, and synchronizes a multi-stage camera recoil and drag animation with the visual impact of procedural chains.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Disables the ClockManager and CameraParallax systems to freeze background interactions.
+- Forces the TurnCycleManager and StainedEyeControllers into their designated death states.
+- Smoothly interpolates post-processing effects (chromatic aberration, saturation, vignette, lens distortion) and camera FOV over time.
+- Calculates and executes procedural camera recoil synced to the exact impact times of the death chains.
+- Performs a final eased camera drag toward the stained glass center before reloading the active scene.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.HighDefinition;
+using Unity.Cinemachine;
+
+public class DeathManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static DeathManager Instance;
+
+    // ============================================================
+    // Delay Settings
+    // ============================================================
+
+    [Header("Delay Settings")]
+    public float delayBeforeChains;
+    public float delayBeforeRestart;
+
+    // ============================================================
+    // Drag Animation Settings
+    // ============================================================
+
+    [Header("Drag Animation Settings")]
+    public Transform stainedGlassCenter;
+
+    public float dragDuration;
+    public float impulseDuration;
+    public float impulseDistance;
+    public float dragDelay;
+    public float driftSpeed;
+
+    // ============================================================
+    // Visual Effects Settings
+    // ============================================================
+
+    [Header("Visual Effects Settings")]
+    public Volume globalVolume;
+
+    public float chromaticAberration;
+    public float saturation;
+    public float vignette;
+    public float lensDistortion;
+
+    // ============================================================
+    // Camera Settings
+    // ============================================================
+
+    [Header("Camera Settings")]
+    public CinemachineCamera cinemachineCamera;
+
+    public float cameraFOV;
+    public float transitionSpeed;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private TurnCycleManager turnCycleManager;
+    private SplineChainAnimations splineChainsAnimations;
+    private CameraParallax cameraParallaxScript;
+
+    private ChromaticAberration chromaticAberrationValue;
+    private ColorAdjustments colorAdjustmentsValue;
+    private Vignette vignetteValue;
+    private LensDistortion lensDistortionValue;
+
+    private StainedEyeController[] stainedEyeControllersArray;
+
+    private bool isDead = false;
+
+    private void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(gameObject);
+
+        }
+    }
+
+    private void Start() {
+
+        turnCycleManager = FindFirstObjectByType<TurnCycleManager>();
+        splineChainsAnimations = FindFirstObjectByType<SplineChainAnimations>();
+        cameraParallaxScript = FindFirstObjectByType<CameraParallax>();
+
+        stainedEyeControllersArray = FindObjectsByType<StainedEyeController>(FindObjectsSortMode.None);
+
+        if (globalVolume != null && globalVolume.profile != null) {
+
+            globalVolume.profile.TryGet(out chromaticAberrationValue);
+            globalVolume.profile.TryGet(out colorAdjustmentsValue);
+            globalVolume.profile.TryGet(out vignetteValue);
+            globalVolume.profile.TryGet(out lensDistortionValue);
+
+        }
+    }
+
+    private void Update() {
+
+        if (isDead == true) {
+
+            handlePostProcessingEffects();
+
+            bool isCinemachineActive = cinemachineCamera != null && cinemachineCamera.enabled == true;
+
+            if (isCinemachineActive == true) {
+
+                handleCameraEffects();
+
+            }
+
+            else if (Camera.main != null) {
+
+                Camera.main.fieldOfView = Mathf.Lerp(Camera.main.fieldOfView, cameraFOV, Time.unscaledDeltaTime * transitionSpeed);
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Death Sequence Logic
+    // ============================================================
+
+    public void triggerDeathSequence() {
+
+        if (isDead == true) {
+
+            return;
+
+        }
+
+        isDead = true;
+
+        if (ClockManager.Instance != null) {
+
+            ClockManager.Instance.enabled = false;
+
+        }
+
+        if (cameraParallaxScript != null) {
+
+            cameraParallaxScript.disableAndCenter();
+
+        }
+
+        StartCoroutine(deathSequenceCoroutine());
+
+    }
+
+    private IEnumerator deathSequenceCoroutine() {
+
+        if (CombatManager.Instance != null) {
+
+            CombatManager.Instance.DebugKillStats();
+
+        }
+
+        if (turnCycleManager != null) {
+
+            turnCycleManager.setState(states.Eye);
+
+        }
+
+        if (stainedEyeControllersArray != null) {
+
+            foreach (StainedEyeController eyeController in stainedEyeControllersArray) {
+
+                eyeController.forceCenterEye();
+
+            }
+        }
+
+        if (splineChainsAnimations != null) {
+
+            splineChainsAnimations.removeAllCombatChains();
+
+        }
+
+        yield return new WaitForSeconds(delayBeforeChains);
+
+        if (splineChainsAnimations != null) {
+
+            splineChainsAnimations.playAllDeathChains();
+
+        }
+
+        yield return StartCoroutine(finalMovementSequence());
+
+        yield return new WaitForSeconds(delayBeforeRestart);
+
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+
+    }
+
+    private IEnumerator finalMovementSequence() {
+
+        if (cinemachineCamera != null) {
+
+            cinemachineCamera.enabled = false;
+
+        }
+
+        Transform cameraTransform = Camera.main.transform;
+        Vector3 startPosition = cameraTransform.position;
+        Vector3 targetPosition;
+
+        if (stainedGlassCenter != null) {
+
+            targetPosition = stainedGlassCenter.position;
+
+        }
+
+        else {
+
+            targetPosition = startPosition + (Vector3.forward * 10f);
+
+        }
+
+        Vector3 directionToCenter = (targetPosition - startPosition).normalized;
+        Vector3 currentRecoilPosition = startPosition;
+        Vector3 actualPosition = startPosition;
+
+        float[] impactTimesArray = new float[0];
+
+        bool hasDeathChains = splineChainsAnimations != null && splineChainsAnimations.deathChainsArray != null;
+
+        if (hasDeathChains == true) {
+
+            impactTimesArray = new float[splineChainsAnimations.deathChainsArray.Length];
+
+            for (int index = 0; index < impactTimesArray.Length; index = index + 1) {
+
+                var chainElement = splineChainsAnimations.deathChainsArray[index];
+
+                if (chainElement != null) {
+
+                    impactTimesArray[index] = chainElement.startDelay + chainElement.duration;
+
+                }
+            }
+
+            System.Array.Sort(impactTimesArray);
+
+        }
+
+        float sequenceTimer = 0f;
+        int nextImpactIndex = 0;
+        float maximumImpactTime;
+
+        if (impactTimesArray.Length > 0) {
+
+            maximumImpactTime = impactTimesArray[impactTimesArray.Length - 1];
+
+        }
+
+        else {
+
+            maximumImpactTime = 1.5f;
+
+        }
+
+        while (sequenceTimer < maximumImpactTime + dragDelay) {
+
+            sequenceTimer = sequenceTimer + Time.unscaledDeltaTime;
+
+            while (nextImpactIndex < impactTimesArray.Length && sequenceTimer >= impactTimesArray[nextImpactIndex]) {
+
+                currentRecoilPosition = currentRecoilPosition - (directionToCenter * impulseDistance);
+                nextImpactIndex = nextImpactIndex + 1;
+
+            }
+
+            if (nextImpactIndex > 0) {
+
+                currentRecoilPosition = currentRecoilPosition - (directionToCenter * driftSpeed * Time.unscaledDeltaTime);
+
+            }
+
+            float recoilSpeed;
+
+            if (impulseDuration > 0f) {
+
+                recoilSpeed = (1f / impulseDuration) * 2f;
+
+            }
+
+            else {
+
+                recoilSpeed = 15f;
+
+            }
+
+            actualPosition = Vector3.Lerp(actualPosition, currentRecoilPosition, Time.unscaledDeltaTime * recoilSpeed);
+            cameraTransform.position = actualPosition;
+
+            yield return null;
+
+        }
+
+        float dragTimer = 0f;
+        Vector3 dragStartPosition = cameraTransform.position;
+
+        while (dragTimer < dragDuration) {
+
+            dragTimer = dragTimer + Time.unscaledDeltaTime;
+
+            float timeFraction = dragTimer / dragDuration;
+            float easedTimeFraction = timeFraction * timeFraction * timeFraction;
+
+            cameraTransform.position = Vector3.Lerp(dragStartPosition, targetPosition, easedTimeFraction);
+
+            yield return null;
+
+        }
+
+        cameraTransform.position = targetPosition;
+
+        if (splineChainsAnimations != null) {
+
+            splineChainsAnimations.removeAllDeathChains();
+
+        }
+    }
+
+    // ============================================================
+    // Post-Processing & Visuals
+    // ============================================================
+
+    private void handlePostProcessingEffects() {
+
+        if (chromaticAberrationValue != null) {
+
+            chromaticAberrationValue.intensity.value = Mathf.Lerp(chromaticAberrationValue.intensity.value, chromaticAberration, Time.unscaledDeltaTime * transitionSpeed);
+
+        }
+
+        if (colorAdjustmentsValue != null) {
+
+            colorAdjustmentsValue.saturation.value = Mathf.Lerp(colorAdjustmentsValue.saturation.value, saturation, Time.unscaledDeltaTime * transitionSpeed);
+
+        }
+
+        if (vignetteValue != null) {
+
+            vignetteValue.intensity.value = Mathf.Lerp(vignetteValue.intensity.value, vignette, Time.unscaledDeltaTime * transitionSpeed);
+
+        }
+
+        if (lensDistortionValue != null) {
+
+            lensDistortionValue.intensity.value = Mathf.Lerp(lensDistortionValue.intensity.value, lensDistortion, Time.unscaledDeltaTime * transitionSpeed);
+
+        }
+    }
+
+    private void handleCameraEffects() {
+
+        if (cinemachineCamera == null) {
+
+            return;
+
+        }
+
+        var cameraLens = cinemachineCamera.Lens;
+        cameraLens.FieldOfView = Mathf.Lerp(cameraLens.FieldOfView, cameraFOV, Time.unscaledDeltaTime * transitionSpeed);
+        cinemachineCamera.Lens = cameraLens;
+
+    }
+}
