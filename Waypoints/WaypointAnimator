@@ -1,0 +1,343 @@
+// ============================================================
+// Readme of WaypointAnimator
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script handles the procedural coroutine-based animations for the waypoint system, including both the physical flags placed on the grid and the off-screen diamond pointers.
+It coordinates smooth interpolations for scaling, falling, and vibrating effects, while integrating tightly with the audio system and camera shake managers for maximum juice and game feel.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Manages the falling animation of a newly placed waypoint, applying a power curve for impact weight.
+- Generates a visual grid wave via the EntityWaverManager when a waypoint impacts the board.
+- Controls the scaling up and down of UI pointers and waypoint flags to ensure smooth transitions.
+- Executes a vibration animation prior to the destruction of a waypoint to provide clear visual feedback of its removal.
+- Triggers specific audio cues from the HawaHawa AudioSystem corresponding to animation milestones (falling, bouncing, planting).
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using HawaHawa.AudioSystem;
+using UnityEngine;
+
+public class WaypointAnimator : MonoBehaviour {
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool isWaypointFalling = false;
+
+    // ============================================================
+    // Fall Animation Settings
+    // ============================================================
+
+    [Header("Fall Animation Settings")]
+    public float fallHeight;
+    public float fallDuration;
+    public float fallStrength;
+
+    // ============================================================
+    // Shake Settings
+    // ============================================================
+
+    [Header("Shake Settings")]
+    public float shakeAmplitude;
+    public float shakeFrequency;
+    public float shakeDuration;
+
+    // ============================================================
+    // Vibrate Settings
+    // ============================================================
+
+    [Header("Vibrate Settings")]
+    public float vibrateAmplitude;
+    public float vibrateSpeed;
+    public float vibrateDuration;
+
+    // ============================================================
+    // Waypoint (Flag) Scale Settings
+    // ============================================================
+
+    [Header("Waypoint (Flag) Scale Settings")]
+    public float waypointMaxScale;
+    public float waypointMinScale;
+    public float waypointScaleSpeed;
+
+    // ============================================================
+    // Pointer (Diamond) Scale Settings
+    // ============================================================
+
+    [Header("Pointer (Diamond) Scale Settings")]
+    public float pointerMaxScale;
+    public float pointerMinScale;
+    public float pointerScaleSpeed;
+
+    // ============================================================
+    // Public Animation Triggers
+    // ============================================================
+
+    public void playFallWaypointAnimation(GameObject waypointObject) {
+
+        StartCoroutine(fallWaypointCoroutine(waypointObject));
+
+    }
+
+    public void playVibrateAndDestroyWaypointAnimation(GameObject waypointObject) {
+
+        StartCoroutine(vibrateAndDestroyWaypointCoroutine(waypointObject));
+
+    }
+
+    public void playUnscaleAnimation(GameObject waypointObject) {
+
+        StartCoroutine(unscaleCoroutine(waypointObject, waypointMinScale, waypointScaleSpeed));
+
+    }
+
+    public void playScaleAnimation(GameObject waypointObject) {
+
+        StartCoroutine(scaleCoroutine(waypointObject, waypointMaxScale, waypointScaleSpeed));
+
+    }
+
+    public void playUnscaleAndDestroyAnimation(GameObject waypointObject) {
+
+        StartCoroutine(unscaleAndDestroyCoroutine(waypointObject, waypointMinScale, waypointScaleSpeed));
+
+    }
+
+    public void playPointerScaleAnimation(GameObject pointerObject) {
+
+        StartCoroutine(scaleCoroutine(pointerObject, pointerMaxScale, pointerScaleSpeed));
+
+    }
+
+    public void playPointerUnscaleAndDestroyAnimation(GameObject pointerObject) {
+
+        StartCoroutine(unscaleAndDestroyCoroutine(pointerObject, pointerMinScale, pointerScaleSpeed));
+
+    }
+
+    // ============================================================
+    // Internal Animation Coroutines
+    // ============================================================
+
+    private IEnumerator fallWaypointCoroutine(GameObject targetGameObject) {
+
+        isWaypointFalling = true;
+        float sequenceTimer = 0f;
+
+        Vector3 endLocalPosition = Vector3.zero;
+        Vector3 startLocalPosition = endLocalPosition + (Vector3.up * fallHeight);
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localPosition = startLocalPosition;
+            targetGameObject.transform.localScale = Vector3.one * waypointMaxScale;
+
+        }
+
+        while (sequenceTimer < fallDuration) {
+
+            if (targetGameObject == null) {
+
+                isWaypointFalling = false;
+                yield break;
+
+            }
+
+            float timeFraction = sequenceTimer / fallDuration;
+            timeFraction = Mathf.Pow(timeFraction, fallStrength);
+
+            targetGameObject.transform.localPosition = Vector3.Lerp(startLocalPosition, endLocalPosition, timeFraction);
+            sequenceTimer = sequenceTimer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localPosition = endLocalPosition;
+
+            if (EntityWaverManager.Instance != null) {
+
+                Vector2Int logicalGridPosition = GridManager.Instance.worldToGridPosition(targetGameObject.transform.position);
+                Vector3 waveOriginLogicalPosition = new Vector3(logicalGridPosition.x, 0f, logicalGridPosition.y);
+
+                EntityWaverManager.Instance.generateWave(waveOriginLogicalPosition);
+
+            }
+        }
+
+        AudioSystem.GetAudioCollection("waypointSounds")?.Play("waypointFall");
+        AudioSystem.GetAudioCollection("waypointSounds")?.Play("waypointBoing");
+
+        yield return new WaitForSeconds(0.2f);
+
+        AudioSystem.GetAudioCollection("waypointSounds")?.Play("waypointFlag");
+
+        if (CameraShake.Instance != null) {
+
+            CameraShake.Instance.shakeCamera(shakeAmplitude, shakeFrequency, shakeDuration);
+
+        }
+
+        isWaypointFalling = false;
+
+    }
+
+    private IEnumerator vibrateAndDestroyWaypointCoroutine(GameObject targetGameObject) {
+
+        AudioSystem.GetAudioCollection("waypointSounds")?.Play("waypointFlag");
+
+        if (targetGameObject == null) {
+
+            yield break;
+
+        }
+
+        float sequenceTimer = 0f;
+        Vector3 originalLocalPosition = targetGameObject.transform.localPosition;
+
+        while (sequenceTimer < vibrateDuration) {
+
+            if (targetGameObject == null) {
+
+                yield break;
+
+            }
+
+            float xAxisOffset = Mathf.Sin(Time.time * vibrateSpeed) * vibrateAmplitude;
+            targetGameObject.transform.localPosition = originalLocalPosition + new Vector3(xAxisOffset, 0f, 0f);
+
+            sequenceTimer = sequenceTimer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localPosition = originalLocalPosition;
+            yield return StartCoroutine(unscaleAndDestroyCoroutine(targetGameObject, waypointMinScale, waypointScaleSpeed));
+
+        }
+    }
+
+    private IEnumerator unscaleAndDestroyCoroutine(GameObject targetGameObject, float targetMinimumScale, float scaleSpeed) {
+
+        if (targetGameObject == null) {
+
+            yield break;
+
+        }
+
+        float sequenceTimer = 0f;
+        Vector3 initialScale = targetGameObject.transform.localScale;
+
+        while (sequenceTimer < scaleSpeed) {
+
+            if (targetGameObject == null) {
+
+                yield break;
+
+            }
+
+            float scaleTimeFraction = Mathf.Min(sequenceTimer / scaleSpeed, 1f);
+            targetGameObject.transform.localScale = Vector3.Lerp(initialScale, Vector3.one * targetMinimumScale, scaleTimeFraction);
+
+            sequenceTimer = sequenceTimer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localScale = Vector3.one * targetMinimumScale;
+            Destroy(targetGameObject);
+
+        }
+    }
+
+    private IEnumerator unscaleCoroutine(GameObject targetGameObject, float targetMinimumScale, float scaleSpeed) {
+
+        if (targetGameObject == null) {
+
+            yield break;
+
+        }
+
+        float sequenceTimer = 0f;
+        Vector3 initialScale = targetGameObject.transform.localScale;
+
+        while (sequenceTimer < scaleSpeed) {
+
+            if (targetGameObject == null) {
+
+                yield break;
+
+            }
+
+            float scaleTimeFraction = Mathf.Min(sequenceTimer / scaleSpeed, 1f);
+            targetGameObject.transform.localScale = Vector3.Lerp(initialScale, Vector3.one * targetMinimumScale, scaleTimeFraction);
+
+            sequenceTimer = sequenceTimer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localScale = Vector3.one * targetMinimumScale;
+
+        }
+    }
+
+    private IEnumerator scaleCoroutine(GameObject targetGameObject, float targetMaximumScale, float scaleSpeed) {
+
+        if (targetGameObject == null) {
+
+            yield break;
+
+        }
+
+        float sequenceTimer = 0f;
+        Vector3 initialScale = targetGameObject.transform.localScale;
+
+        while (sequenceTimer < scaleSpeed) {
+
+            if (targetGameObject == null) {
+
+                yield break;
+
+            }
+
+            float scaleTimeFraction = Mathf.Min(sequenceTimer / scaleSpeed, 1f);
+            targetGameObject.transform.localScale = Vector3.Lerp(initialScale, Vector3.one * targetMaximumScale, scaleTimeFraction);
+
+            sequenceTimer = sequenceTimer + Time.deltaTime;
+
+            yield return null;
+
+        }
+
+        if (targetGameObject != null) {
+
+            targetGameObject.transform.localScale = Vector3.one * targetMaximumScale;
+
+        }
+    }
+}
