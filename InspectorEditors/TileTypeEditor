@@ -1,0 +1,644 @@
+// ============================================================
+// Readme of TileTypeEditor
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as a Custom Editor for the TileType ScriptableObjects. 
+It provides an intuitive interface to configure grid elements, enemies, and interactables, dynamically hiding irrelevant fields based on the tile's classification.
+It also features a custom 7x7 interactive grid to visually "paint" and define multi-tile obstacle shapes and their collision layers.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Overrides the default Inspector GUI to create an organized control panel for TileType data.
+- Resolves conditional logic to display only relevant properties (e.g., hiding movement costs for enemies).
+- Renders an interactive matrix that allows developers to paint MultiTileLayer configurations directly on the asset.
+- Serializes and saves modifications made to the multi-tile shape layout using Unity's Undo and dirty states.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEditor;
+using System.Collections.Generic;
+
+[CustomEditor(typeof(TileType))]
+public class TileTypeEditor : Editor {
+
+    // ============================================================
+    // Serialized Properties
+    // ============================================================
+
+    private SerializedProperty tileName;
+    private SerializedProperty prefab;
+    private SerializedProperty isWalkable;
+    private SerializedProperty isWater;
+    private SerializedProperty isEnemy;
+    private SerializedProperty movementCost;
+    private SerializedProperty speedMultiplier;
+    private SerializedProperty offsetY;
+    private SerializedProperty spawnWeight;
+    private SerializedProperty canSpawnOnWater;
+    private SerializedProperty mustSpawnOnWater;
+    private SerializedProperty useRandomRotation;
+    private SerializedProperty randomRotationSteps;
+    private SerializedProperty randomRotationFree;
+    private SerializedProperty isMultiTile;
+    private SerializedProperty destroyAll;
+    private SerializedProperty isEntity;
+    private SerializedProperty entityType;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private MultiTileLayer selectedLayer = MultiTileLayer.noWalkable;
+
+    private void OnEnable() {
+
+        tileName = serializedObject.FindProperty("tileName");
+        prefab = serializedObject.FindProperty("prefab");
+        isWalkable = serializedObject.FindProperty("isWalkable");
+        isWater = serializedObject.FindProperty("isWater");
+        isEnemy = serializedObject.FindProperty("isEnemy");
+        movementCost = serializedObject.FindProperty("movementCost");
+        speedMultiplier = serializedObject.FindProperty("speedMultiplier");
+        offsetY = serializedObject.FindProperty("offsetY");
+        spawnWeight = serializedObject.FindProperty("spawnWeight");
+        canSpawnOnWater = serializedObject.FindProperty("canSpawnOnWater");
+        mustSpawnOnWater = serializedObject.FindProperty("mustSpawnOnWater");
+        useRandomRotation = serializedObject.FindProperty("useRandomRotation");
+        randomRotationSteps = serializedObject.FindProperty("randomRotationSteps");
+        randomRotationFree = serializedObject.FindProperty("randomRotationFree");
+        isMultiTile = serializedObject.FindProperty("isMultiTile");
+        destroyAll = serializedObject.FindProperty("destroyAll");
+        isEntity = serializedObject.FindProperty("isEntity");
+        entityType = serializedObject.FindProperty("entityType");
+
+    }
+
+    private Color getLayerColor(MultiTileLayer targetLayer) {
+
+        if (targetLayer == MultiTileLayer.noWalkable) {
+
+            return new Color(1f, 0.35f, 0.35f);
+
+        }
+
+        else if (targetLayer == MultiTileLayer.walkableNoSpawn) {
+
+            return new Color(1f, 0.85f, 0.2f);
+
+        }
+
+        else if (targetLayer == MultiTileLayer.forceEnemySpawn) {
+
+            return new Color(0.3f, 0.6f, 1f);
+
+        }
+
+        else if (targetLayer == MultiTileLayer.forceEntitySpawn) {
+
+            return new Color(0.5f, 1f, 0.2f);
+
+        }
+
+        else if (targetLayer == MultiTileLayer.multiTileBorder) {
+
+            return Color.black;
+
+        }
+
+        else if (targetLayer == MultiTileLayer.None) {
+
+            return Color.white;
+
+        }
+
+        else {
+
+            return Color.white;
+
+        }
+    }
+
+    public override void OnInspectorGUI() {
+
+        TileType targetTileType = (TileType)target;
+
+        serializedObject.Update();
+
+        EditorGUILayout.LabelField("Tile Configuration", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(tileName);
+        EditorGUILayout.PropertyField(prefab);
+        EditorGUILayout.Space(5);
+        EditorGUILayout.PropertyField(spawnWeight);
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Tile Classification", EditorStyles.boldLabel);
+
+        if (isEntity.boolValue == false) {
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(isEnemy);
+
+            if (EditorGUI.EndChangeCheck() == true) {
+
+                if (isEnemy.boolValue == true) {
+
+                    isWalkable.boolValue = false;
+                    isWater.boolValue = false;
+                    isMultiTile.boolValue = false;
+
+                }
+            }
+        }
+
+        if (isEnemy.boolValue == false) {
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(isEntity);
+
+            if (EditorGUI.EndChangeCheck() == true) {
+
+                if (isEntity.boolValue == true) {
+
+                    isWalkable.boolValue = false;
+                    isWater.boolValue = false;
+                    isMultiTile.boolValue = false;
+
+                }
+            }
+        }
+
+        EditorGUILayout.Space(5);
+
+        if (isEntity.boolValue == true) {
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.PropertyField(entityType, new GUIContent("Entity Layer"));
+            EditorGUILayout.EndVertical();
+
+        }
+
+        else if (isEnemy.boolValue == true) {
+
+            drawWaterSpawnRules();
+
+        }
+
+        else {
+
+            EditorGUILayout.PropertyField(isWalkable);
+
+            if (isWalkable.boolValue == true) {
+
+                EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+                EditorGUILayout.PropertyField(movementCost);
+                EditorGUILayout.PropertyField(speedMultiplier);
+                EditorGUILayout.PropertyField(offsetY);
+                EditorGUI.indentLevel = EditorGUI.indentLevel - 1;
+
+            }
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(isWater);
+
+            drawWaterSpawnRules();
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+            EditorGUILayout.PropertyField(isMultiTile, new GUIContent("Multi-Tile System"));
+
+            if (isMultiTile.boolValue == true) {
+
+                EditorGUILayout.PropertyField(destroyAll, new GUIContent("Destroy All Children"));
+
+                drawPalette();
+                drawGrid(targetTileType);
+
+            }
+
+            EditorGUILayout.EndVertical();
+
+        }
+
+        drawRotation();
+
+        serializedObject.ApplyModifiedProperties();
+
+    }
+
+    // ============================================================
+    // Sections
+    // ============================================================
+
+    private void drawWaterSpawnRules() {
+
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("Water Spawn Rules", EditorStyles.boldLabel);
+
+        EditorGUI.BeginChangeCheck();
+        EditorGUILayout.PropertyField(canSpawnOnWater);
+
+        if (EditorGUI.EndChangeCheck() == true) {
+
+            if (canSpawnOnWater.boolValue == true) {
+
+                mustSpawnOnWater.boolValue = false;
+
+            }
+        }
+
+        EditorGUI.BeginChangeCheck();
+        EditorGUILayout.PropertyField(mustSpawnOnWater);
+
+        if (EditorGUI.EndChangeCheck() == true) {
+
+            if (mustSpawnOnWater.boolValue == true) {
+
+                canSpawnOnWater.boolValue = false;
+
+            }
+        }
+    }
+
+    private void drawPalette() {
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("Paint Palette", EditorStyles.miniBoldLabel);
+        EditorGUILayout.BeginVertical();
+
+        int buttonsInRow = 0;
+        const int maximumButtonsPerRow = 3;
+
+        EditorGUILayout.BeginHorizontal();
+
+        drawPaletteButton(MultiTileLayer.noWalkable, "Wall (Red)");
+
+        buttonsInRow = buttonsInRow + 1;
+
+        if (buttonsInRow >= maximumButtonsPerRow) {
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+
+            buttonsInRow = 0;
+
+        }
+
+        drawPaletteButton(MultiTileLayer.walkableNoSpawn, "No Spawn (Yellow)");
+
+        buttonsInRow = buttonsInRow + 1;
+
+        if (buttonsInRow >= maximumButtonsPerRow) {
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+
+            buttonsInRow = 0;
+
+        }
+
+        drawPaletteButton(MultiTileLayer.forceEnemySpawn, "Force Enemy (Blue)");
+
+        buttonsInRow = buttonsInRow + 1;
+
+        if (buttonsInRow >= maximumButtonsPerRow) {
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+
+            buttonsInRow = 0;
+
+        }
+
+        drawPaletteButton(MultiTileLayer.forceEntitySpawn, "Force Entity (Green)");
+
+        buttonsInRow = buttonsInRow + 1;
+
+        if (buttonsInRow >= maximumButtonsPerRow) {
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+
+            buttonsInRow = 0;
+
+        }
+
+        drawPaletteButton(MultiTileLayer.multiTileBorder, "Border (Black)");
+
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.Space(5);
+        EditorGUILayout.BeginHorizontal();
+
+        if (selectedLayer == MultiTileLayer.None) {
+
+            GUI.backgroundColor = Color.white;
+
+        }
+
+        else {
+
+            GUI.backgroundColor = Color.grey;
+
+        }
+
+        if (GUILayout.Button("Eraser", GUILayout.Height(30)) == true) {
+
+            selectedLayer = MultiTileLayer.None;
+
+        }
+
+        GUI.backgroundColor = Color.white;
+
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+        EditorGUILayout.Space(2);
+
+        if (selectedLayer == MultiTileLayer.noWalkable) {
+
+            EditorGUILayout.HelpBox("No Walkable - No Spawn.", MessageType.Info);
+
+        }
+
+        else if (selectedLayer == MultiTileLayer.walkableNoSpawn) {
+
+            EditorGUILayout.HelpBox("Walkable - No Spawn.", MessageType.Info);
+
+        }
+
+        else if (selectedLayer == MultiTileLayer.forceEnemySpawn) {
+
+            EditorGUILayout.HelpBox("Guaranteed Enemy Spawn.", MessageType.Info);
+
+        }
+
+        else if (selectedLayer == MultiTileLayer.forceEntitySpawn) {
+
+            EditorGUILayout.HelpBox("Guaranteed Entity Spawn.", MessageType.Info);
+
+        }
+
+        else if (selectedLayer == MultiTileLayer.multiTileBorder) {
+
+            EditorGUILayout.HelpBox("Reserves space to prevent overlapping in multi-Tiles obstacles.", MessageType.Info);
+
+        }
+
+        else if (selectedLayer == MultiTileLayer.None) {
+
+            EditorGUILayout.HelpBox("Eraser Mode: Clear tile data", MessageType.Info);
+
+        }
+
+        EditorGUILayout.Space(5);
+
+    }
+
+    private void drawPaletteButton(MultiTileLayer targetLayer, string buttonLabel) {
+
+        bool isSelected = selectedLayer == targetLayer;
+
+        if (isSelected == true) {
+
+            GUI.backgroundColor = getLayerColor(targetLayer);
+
+        }
+
+        else {
+
+            GUI.backgroundColor = Color.grey;
+
+        }
+
+        GUIStyle customStyle = new GUIStyle(GUI.skin.button);
+
+        if (isSelected == true) {
+
+            customStyle.fontStyle = FontStyle.Bold;
+
+        }
+
+        if (GUILayout.Button(buttonLabel, customStyle, GUILayout.Height(30)) == true) {
+
+            selectedLayer = targetLayer;
+
+        }
+    }
+
+    private void drawGrid(TileType targetTileType) {
+
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("Shape Design:", EditorStyles.boldLabel);
+        EditorGUILayout.LabelField("(Click or Drag to paint)", EditorStyles.miniLabel);
+
+        float buttonSize = 32f;
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.Space(10);
+
+        Event currentEvent = Event.current;
+
+        for (int positionY = 1; positionY >= -5; positionY = positionY - 1) {
+
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+
+            for (int positionX = -1; positionX <= 5; positionX = positionX + 1) {
+
+                Vector2Int currentOffset = new Vector2Int(positionX, positionY);
+                MultiTileLayer currentLayer = targetTileType.getLayerAt(currentOffset);
+                bool isAnchor = currentOffset == Vector2Int.zero;
+
+                if (currentLayer != MultiTileLayer.None) {
+
+                    GUI.backgroundColor = getLayerColor(currentLayer);
+
+                }
+
+                else {
+
+                    GUI.backgroundColor = Color.white;
+
+                }
+
+                string cellLabel;
+
+                if (isAnchor == true) {
+
+                    cellLabel = "C";
+
+                }
+
+                else {
+
+                    cellLabel = "";
+
+                }
+
+                GUIStyle cellStyle = new GUIStyle(GUI.skin.button);
+                cellStyle.alignment = TextAnchor.MiddleCenter;
+
+                if (isAnchor == true) {
+
+                    cellStyle.fontStyle = FontStyle.Bold;
+
+                }
+
+                else {
+
+                    cellStyle.fontStyle = FontStyle.Normal;
+
+                }
+
+                cellStyle.active.background = cellStyle.normal.background;
+
+                GUILayout.Box(cellLabel, cellStyle, GUILayout.Width(buttonSize), GUILayout.Height(buttonSize));
+
+                Rect cellRect = GUILayoutUtility.GetLastRect();
+
+                if (cellRect.Contains(currentEvent.mousePosition) == true) {
+
+                    bool isClicking = currentEvent.type == EventType.MouseDown || currentEvent.type == EventType.MouseDrag;
+                    bool isLeftButton = currentEvent.button == 0;
+
+                    if (isClicking == true && isLeftButton == true) {
+
+                        if (currentLayer != selectedLayer) {
+
+                            paintTile(targetTileType, currentOffset);
+                            currentEvent.Use();
+                            Repaint();
+
+                        }
+                    }
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+        }
+
+        EditorGUILayout.Space(10);
+        GUI.backgroundColor = Color.white;
+
+        if (GUILayout.Button("Clear All", EditorStyles.miniButton) == true) {
+
+            bool confirmationResponse = EditorUtility.DisplayDialog("Clear Shape", "Are you sure you want to delete all tiles?", "Yes", "No");
+
+            if (confirmationResponse == true) {
+
+                Undo.RecordObject(targetTileType, "Clear Shape");
+                targetTileType.multiTileShape.Clear();
+                EditorUtility.SetDirty(targetTileType);
+
+            }
+        }
+
+        EditorGUILayout.EndVertical();
+        GUI.backgroundColor = Color.white;
+
+    }
+
+    private void paintTile(TileType targetTileType, Vector2Int targetOffset) {
+
+        Undo.RecordObject(targetTileType, "Paint Tile");
+
+        int shapeIndex = targetTileType.multiTileShape.FindIndex(dataItem => dataItem.offset == targetOffset);
+
+        if (selectedLayer == MultiTileLayer.None) {
+
+            if (shapeIndex != -1) {
+
+                targetTileType.multiTileShape.RemoveAt(shapeIndex);
+
+            }
+        }
+
+        else {
+
+            if (shapeIndex != -1) {
+
+                targetTileType.multiTileShape[shapeIndex].layer = selectedLayer;
+
+            }
+
+            else {
+
+                targetTileType.multiTileShape.Add(new MultiTileData { offset = targetOffset, layer = selectedLayer });
+
+            }
+        }
+
+        targetTileType.sortShape();
+        EditorUtility.SetDirty(targetTileType);
+
+    }
+
+    private void drawRotation() {
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.PropertyField(useRandomRotation, new GUIContent("Enable Random Rotation"));
+
+        if (useRandomRotation.boolValue == true) {
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+            EditorGUI.BeginChangeCheck();
+
+            bool stepsEnabled = EditorGUILayout.Toggle("90° Steps Only", randomRotationSteps.boolValue);
+            bool freeEnabled = EditorGUILayout.Toggle("Free Rotation (360°)", randomRotationFree.boolValue);
+
+            if (EditorGUI.EndChangeCheck() == true) {
+
+                if (stepsEnabled == true) {
+
+                    if (randomRotationSteps.boolValue == false) {
+
+                        randomRotationSteps.boolValue = true;
+                        randomRotationFree.boolValue = false;
+
+                    }
+                }
+
+                else if (freeEnabled == true) {
+
+                    if (randomRotationFree.boolValue == false) {
+
+                        randomRotationFree.boolValue = true;
+                        randomRotationSteps.boolValue = false;
+
+                    }
+                }
+
+                else {
+
+                    randomRotationSteps.boolValue = stepsEnabled;
+                    randomRotationFree.boolValue = freeEnabled;
+
+                }
+            }
+
+            if (randomRotationSteps.boolValue == false) {
+
+                if (randomRotationFree.boolValue == false) {
+
+                    EditorGUILayout.HelpBox("Select a rotation mode.", MessageType.Warning);
+
+                }
+            }
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel;
+            EditorGUILayout.EndVertical();
+
+        }
+    }
+}
