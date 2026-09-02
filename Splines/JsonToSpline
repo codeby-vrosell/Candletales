@@ -1,0 +1,110 @@
+// ============================================================
+// Readme of JsonToSpline
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script is an editor utility and runtime component that parses JSON files containing Bezier curve data and translates them into Unity's native SplineContainer format.
+It uses Newtonsoft.Json to deserialize the data and procedurally generates the necessary knots and tangents required to perfectly match the imported curve shape.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Exposes a context menu command in the Unity Inspector to trigger the spline generation manually.
+- Deserializes a provided JSON TextAsset into a CurveData object using Newtonsoft.Json.
+- Clears any existing splines within the attached SplineContainer to prepare for the new data.
+- Iterates through the imported curve lists, calculating tangent vectors based on the right and left handles.
+- Applies cyclic (looping) settings to the final generated spline based on the JSON configuration.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Splines;
+using Unity.Mathematics;
+using Newtonsoft.Json;
+
+public class JsonToSpline : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("JSON File")]
+    public TextAsset jsonFileAsset;
+
+    // ============================================================
+    // Spline Generation Logic
+    // ============================================================
+
+    [ContextMenu("Generate Spline")]
+    public void generateSpline() {
+
+        if (jsonFileAsset == null) {
+
+            return;
+
+        }
+
+        CurveData importedCurveData = JsonConvert.DeserializeObject<CurveData>(jsonFileAsset.text);
+
+        if (importedCurveData == null || importedCurveData.curvesList == null || importedCurveData.curvesList.Count == 0) {
+
+            return;
+
+        }
+
+        SplineContainer splineContainerComponent = GetComponent<SplineContainer>();
+
+        if (splineContainerComponent == null) {
+
+            splineContainerComponent = gameObject.AddComponent<SplineContainer>();
+
+        }
+
+        if (splineContainerComponent.Splines.Count > 0) {
+
+            for (int splineIndex = splineContainerComponent.Splines.Count - 1; splineIndex >= 0; splineIndex = splineIndex - 1) {
+
+                splineContainerComponent.RemoveSpline(splineContainerComponent.Splines[splineIndex]);
+
+            }
+        }
+
+        foreach (List<CurveInfo> curveGroupList in importedCurveData.curvesList) {
+
+            foreach (CurveInfo curveInformation in curveGroupList) {
+
+                Spline newSpline = new Spline();
+
+                for (int pointIndex = curveInformation.pointsList.Count - 1; pointIndex >= 0; pointIndex = pointIndex - 1) {
+
+                    PointInfo currentPoint = curveInformation.pointsList[pointIndex];
+
+                    float3 pointPosition = new float3(currentPoint.position[0], currentPoint.position[1], currentPoint.position[2]);
+
+                    float3 leftHandleVector = new float3(currentPoint.leftHandle[0], currentPoint.leftHandle[1], currentPoint.leftHandle[2]);
+                    float3 rightHandleVector = new float3(currentPoint.rightHandle[0], currentPoint.rightHandle[1], currentPoint.rightHandle[2]);
+
+                    float3 tangentIn = rightHandleVector - pointPosition;
+                    float3 tangentOut = leftHandleVector - pointPosition;
+
+                    BezierKnot splineKnot = new BezierKnot(pointPosition, tangentIn, tangentOut, quaternion.identity);
+
+                    newSpline.Add(splineKnot);
+
+                }
+
+                newSpline.Closed = curveInformation.isCyclicU;
+
+                splineContainerComponent.AddSpline(newSpline);
+
+            }
+        }
+    }
+}
