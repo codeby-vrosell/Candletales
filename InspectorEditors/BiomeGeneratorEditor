@@ -1,0 +1,830 @@
+// ============================================================
+// Readme of BiomeGeneratorEditor
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script acts as a Custom Editor for the BiomeGenerator, overriding its default Unity Inspector interface.
+It provides a highly organized, color-coded control panel to easily tweak the complex procedural generation settings (terrain warping, water frequency, obstacle density, enemy parameters, and entity spacing) without cluttering the UI.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Overrides the default Inspector GUI for the BiomeGenerator component.
+- Links serialized properties directly to the generator's fields.
+- Dynamically hides or shows dependent settings based on boolean toggles (e.g., hiding lake settings if water is disabled).
+- Applies distinct color coding to different setting blocks (Terrain, Water, Obstacles, Enemies, Entities) for improved readability.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEditor;
+
+[CustomEditor(typeof(BiomeGenerator))]
+public class BiomeGeneratorEditor : Editor {
+
+    // ============================================================
+    // Script Reference
+    // ============================================================
+
+    private BiomeGenerator generatorScript;
+
+    // ============================================================
+    // Serialized Properties
+    // ============================================================
+
+    private SerializedProperty seed;
+    private SerializedProperty biomes;
+
+    // Terrain
+    private SerializedProperty approximateBiomeSize;
+    private SerializedProperty warpNoiseStrength;
+    private SerializedProperty warpNoiseFrequency;
+    private SerializedProperty falloffNoiseSmoothness;
+
+    // Water
+    private SerializedProperty enableWater;
+    private SerializedProperty lakeNoiseFrequency;
+    private SerializedProperty lakeDensityThreshold;
+    private SerializedProperty riverNoiseFrequency;
+    private SerializedProperty riverWidth;
+
+    // Obstacles
+    private SerializedProperty enableObstacles;
+    private SerializedProperty obstaclesSafeZone;
+
+    // Enemies
+    private SerializedProperty enableEnemies;
+    private SerializedProperty mainEnemyProbability;
+    private SerializedProperty enemiesSafeZone;
+    private SerializedProperty minimumGroupSeparation;
+    private SerializedProperty turnsToRespawn;
+    private SerializedProperty groupSizeWeights;
+
+    // Entities
+    private SerializedProperty enableEntities;
+    private SerializedProperty entitiesSafeZone;
+    private SerializedProperty minimumEntitySeparation;
+    private SerializedProperty minimumSameEntitySeparation;
+    private SerializedProperty merchantSpacing;
+    private SerializedProperty goblinSpacing;
+    private SerializedProperty bonfireSpacing;
+    private SerializedProperty chestSpacing;
+    private SerializedProperty slimeSpacing;
+    private SerializedProperty mimicSpacing;
+
+    // ============================================================
+    // Styling
+    // ============================================================
+
+    private GUIStyle headerStyle;
+    private GUIStyle titleStyle;
+
+    private void OnEnable() {
+
+        generatorScript = (BiomeGenerator)target;
+
+        seed = serializedObject.FindProperty("seed");
+        biomes = serializedObject.FindProperty("biomes");
+
+        approximateBiomeSize = serializedObject.FindProperty("approximateBiomeSize");
+
+        // Mapping updated variables to original properties
+        warpNoiseStrength = serializedObject.FindProperty("warpStrength");
+        warpNoiseFrequency = serializedObject.FindProperty("warpFrequency");
+        falloffNoiseSmoothness = serializedObject.FindProperty("falloffSmoothness");
+
+        enableWater = serializedObject.FindProperty("enableWater");
+        lakeNoiseFrequency = serializedObject.FindProperty("lakeFrequency");
+        lakeDensityThreshold = serializedObject.FindProperty("lakeThreshold");
+        riverNoiseFrequency = serializedObject.FindProperty("riverFrequency");
+        riverWidth = serializedObject.FindProperty("riverWidth");
+
+        enableObstacles = serializedObject.FindProperty("enableObstacles");
+        obstaclesSafeZone = serializedObject.FindProperty("obstaclesSafeZone");
+
+        enableEnemies = serializedObject.FindProperty("enableEnemies");
+        mainEnemyProbability = serializedObject.FindProperty("mainEnemyProbability");
+        enemiesSafeZone = serializedObject.FindProperty("enemiesSafeZone");
+        minimumGroupSeparation = serializedObject.FindProperty("minimumGroupSeparation");
+        turnsToRespawn = serializedObject.FindProperty("turnsToRespawn");
+        groupSizeWeights = serializedObject.FindProperty("groupSizeWeights");
+
+        enableEntities = serializedObject.FindProperty("enableEntities");
+        entitiesSafeZone = serializedObject.FindProperty("entitiesSafeZone");
+        minimumEntitySeparation = serializedObject.FindProperty("minimumEntitySeparation");
+        minimumSameEntitySeparation = serializedObject.FindProperty("minimumSameEntitySeparation");
+        merchantSpacing = serializedObject.FindProperty("merchantSpacing");
+        goblinSpacing = serializedObject.FindProperty("goblinSpacing");
+        bonfireSpacing = serializedObject.FindProperty("bonfireSpacing");
+        chestSpacing = serializedObject.FindProperty("chestSpacing");
+        slimeSpacing = serializedObject.FindProperty("slimeSpacing");
+        mimicSpacing = serializedObject.FindProperty("mimicSpacing");
+
+    }
+
+    public override void OnInspectorGUI() {
+
+        serializedObject.Update();
+
+        if (headerStyle == null) {
+
+            headerStyle = new GUIStyle(EditorStyles.boldLabel);
+            headerStyle.fontSize = 12;
+
+            if (EditorGUIUtility.isProSkin == true) {
+
+                headerStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
+
+            }
+
+            else {
+
+                headerStyle.normal.textColor = Color.black;
+
+            }
+
+            headerStyle.alignment = TextAnchor.MiddleLeft;
+
+        }
+
+        if (titleStyle == null) {
+
+            titleStyle = new GUIStyle(EditorStyles.boldLabel);
+            titleStyle.fontSize = 14;
+            titleStyle.alignment = TextAnchor.MiddleCenter;
+
+            if (EditorGUIUtility.isProSkin == true) {
+
+                titleStyle.normal.textColor = Color.white;
+
+            }
+
+            else {
+
+                titleStyle.normal.textColor = Color.black;
+
+            }
+        }
+
+        drawMainTitleSection();
+
+        EditorGUILayout.Space(10);
+
+        drawSeedSection(new Color(0.7f, 1f, 0.7f));
+        drawBiomesSection(new Color(0.6f, 0.9f, 1f));
+
+        EditorGUILayout.Space(15);
+
+        drawTitleSection("GENERAL SETTINGS", "Global World Configuration");
+
+        drawTerrainSection(new Color(1f, 0.95f, 0.6f));
+
+        Color waterColor;
+
+        if (enableWater.boolValue == true) {
+
+            waterColor = new Color(0.5f, 0.8f, 1f);
+
+        }
+
+        else {
+
+            waterColor = new Color(0.85f, 0.85f, 0.85f);
+
+        }
+
+        drawWaterSection(waterColor);
+
+        Color obstaclesColor;
+
+        if (enableObstacles.boolValue == true) {
+
+            obstaclesColor = new Color(1f, 0.8f, 0.6f);
+
+        }
+
+        else {
+
+            obstaclesColor = new Color(0.85f, 0.85f, 0.85f);
+
+        }
+
+        drawObstaclesSection(obstaclesColor);
+
+        Color enemyColor;
+
+        if (enableEnemies.boolValue == true) {
+
+            enemyColor = new Color(1f, 0.7f, 0.7f);
+
+        }
+
+        else {
+
+            enemyColor = new Color(0.85f, 0.85f, 0.85f);
+
+        }
+
+        drawEnemiesSection(enemyColor);
+
+        Color entityColor;
+
+        if (enableEntities.boolValue == true) {
+
+            entityColor = new Color(0.5f, 1f, 0.2f);
+
+        }
+
+        else {
+
+            entityColor = new Color(0.85f, 0.85f, 0.85f);
+
+        }
+
+        drawEntitiesSection(entityColor);
+
+        serializedObject.ApplyModifiedProperties();
+
+    }
+
+    // ============================================================
+    // Sections
+    // ============================================================
+
+    private void drawMainTitleSection() {
+
+        EditorGUILayout.Space(5);
+        EditorGUILayout.LabelField("BIOME GENERATOR", titleStyle);
+
+        GUIStyle subtitleStyle = new GUIStyle(EditorStyles.miniLabel);
+        subtitleStyle.alignment = TextAnchor.MiddleCenter;
+
+        EditorGUILayout.LabelField("Procedural Generation Control Panel", subtitleStyle);
+
+        Rect controlRect = EditorGUILayout.GetControlRect(false, 1);
+        EditorGUI.DrawRect(controlRect, new Color(0.5f, 0.5f, 0.5f, 0.5f));
+
+    }
+
+    private void drawTitleSection(string titleString, string subtitleString) {
+
+        EditorGUILayout.LabelField(titleString, titleStyle);
+
+        GUIStyle subtitleStyle = new GUIStyle(EditorStyles.miniLabel);
+        subtitleStyle.alignment = TextAnchor.MiddleCenter;
+
+        EditorGUILayout.LabelField(subtitleString, subtitleStyle);
+
+        Rect controlRect = EditorGUILayout.GetControlRect(false, 1);
+        EditorGUI.DrawRect(controlRect, new Color(0.5f, 0.5f, 0.5f, 0.5f));
+
+    }
+
+    private void drawSeedSection(Color sectionColor) {
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Seed Configuration", sectionColor);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Seed Value", GUILayout.Width(80));
+
+            seed.intValue = EditorGUILayout.IntField(GUIContent.none, seed.intValue);
+
+            if (GUILayout.Button("Copy", GUILayout.Height(EditorGUIUtility.singleLineHeight), GUILayout.Width(60)) == true) {
+
+                GUIUtility.systemCopyBuffer = seed.intValue.ToString();
+                Debug.Log("Seed copied: " + seed.intValue);
+
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            if (seed.intValue == 0) {
+
+                EditorGUILayout.HelpBox("Seed 0 = Random seed on Awake.", MessageType.Info);
+
+            }
+        });
+    }
+
+    private void drawBiomesSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Biomes List", headerStyle);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.LabelField("Count: " + biomes.arraySize, EditorStyles.miniLabel, GUILayout.Width(50));
+            EditorGUILayout.EndHorizontal();
+
+            drawSeparationLine(sectionColor);
+
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Add Biome") == true) {
+
+                biomes.InsertArrayElementAtIndex(biomes.arraySize);
+
+            }
+
+            bool canClearArray = biomes.arraySize > 0;
+
+            if (GUILayout.Button("Clear") == true && canClearArray == true) {
+
+                biomes.ClearArray();
+
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(5);
+
+            for (int index = 0; index < biomes.arraySize; index = index + 1) {
+
+                SerializedProperty biomeProperty = biomes.GetArrayElementAtIndex(index);
+                string titleName = "Biome " + (index + 1);
+
+                SerializedProperty nameProperty = biomeProperty.FindPropertyRelative("name");
+
+                if (nameProperty == null) {
+
+                    nameProperty = biomeProperty.FindPropertyRelative("biomeName");
+
+                }
+
+                if (nameProperty == null) {
+
+                    nameProperty = biomeProperty.FindPropertyRelative("Name");
+
+                }
+
+                if (nameProperty != null && nameProperty.propertyType == SerializedPropertyType.String) {
+
+                    bool isNameEmpty = string.IsNullOrEmpty(nameProperty.stringValue);
+
+                    if (isNameEmpty == false) {
+
+                        titleName = nameProperty.stringValue;
+
+                    }
+                }
+
+                Color biomeColor = getBiomeColor(titleName);
+                GUI.backgroundColor = biomeColor;
+
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                GUI.backgroundColor = Color.white;
+
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField(titleName, EditorStyles.boldLabel);
+
+                if (GUILayout.Button("X", GUILayout.Width(25)) == true) {
+
+                    biomes.DeleteArrayElementAtIndex(index);
+                    break;
+
+                }
+
+                EditorGUILayout.EndHorizontal();
+
+                drawSeparationLine(biomeColor);
+                EditorGUILayout.Space(3);
+
+                SerializedProperty endProperty = biomeProperty.GetEndProperty();
+                SerializedProperty iteratorProperty = biomeProperty.Copy();
+
+                SerializedProperty enablePuddlesProperty = biomeProperty.FindPropertyRelative("enablePuddles");
+                SerializedProperty enableObstaclesProperty = biomeProperty.FindPropertyRelative("enableObstacles");
+                SerializedProperty enableEnemiesProperty = biomeProperty.FindPropertyRelative("enableEnemies");
+
+                if (iteratorProperty.NextVisible(true) == true) {
+
+                    do {
+
+                        if (SerializedProperty.EqualContents(iteratorProperty, endProperty) == true) {
+
+                            break;
+
+                        }
+
+                        bool shouldDrawProperty = true;
+
+                        if (iteratorProperty.name == "enablePuddles") {
+
+                            if (enableWater.boolValue == false) {
+
+                                EditorGUILayout.LabelField("Puddle Generation Settings", EditorStyles.boldLabel);
+                                EditorGUILayout.HelpBox("Global Water is disabled.", MessageType.Warning);
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        else if (iteratorProperty.name == "puddleNoiseFrequency" || iteratorProperty.name == "puddleDensityThreshold" || iteratorProperty.name == "puddleScatterInfluence") {
+
+                            bool isGlobalWaterDisabled = enableWater.boolValue == false;
+                            bool isLocalPuddlesDisabled = enablePuddlesProperty != null && enablePuddlesProperty.boolValue == false;
+
+                            if (isGlobalWaterDisabled == true || isLocalPuddlesDisabled == true) {
+
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        else if (iteratorProperty.name == "enableObstacles") {
+
+                            if (enableObstacles.boolValue == false) {
+
+                                EditorGUILayout.LabelField("Obstacle Generation Settings", EditorStyles.boldLabel);
+                                EditorGUILayout.HelpBox("Global Obstacles are disabled.", MessageType.Warning);
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        else if (iteratorProperty.name == "obstacleNoiseFrequency" || iteratorProperty.name == "obstacleDensityThreshold" || iteratorProperty.name == "scatterInfluence") {
+
+                            bool isGlobalObstaclesDisabled = enableObstacles.boolValue == false;
+                            bool isLocalObstaclesDisabled = enableObstaclesProperty != null && enableObstaclesProperty.boolValue == false;
+
+                            if (isGlobalObstaclesDisabled == true || isLocalObstaclesDisabled == true) {
+
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        else if (iteratorProperty.name == "enableEnemies") {
+
+                            if (enableEnemies.boolValue == false) {
+
+                                EditorGUILayout.LabelField("Enemy Generation Settings", EditorStyles.boldLabel);
+                                EditorGUILayout.HelpBox("Global Enemies are disabled.", MessageType.Warning);
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        else if (iteratorProperty.name == "mainEnemy" || iteratorProperty.name == "enemyGroupFrequency") {
+
+                            bool isGlobalEnemiesDisabled = enableEnemies.boolValue == false;
+                            bool isLocalEnemiesDisabled = enableEnemiesProperty != null && enableEnemiesProperty.boolValue == false;
+
+                            if (isGlobalEnemiesDisabled == true || isLocalEnemiesDisabled == true) {
+
+                                shouldDrawProperty = false;
+
+                            }
+                        }
+
+                        if (shouldDrawProperty == true) {
+
+                            EditorGUILayout.PropertyField(iteratorProperty, true);
+
+                        }
+
+                    }
+                    
+                    while (iteratorProperty.NextVisible(false) == true);
+
+                }
+
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(4);
+
+            }
+        });
+    }
+
+    private void drawTerrainSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Terrain", sectionColor);
+
+            EditorGUILayout.PropertyField(approximateBiomeSize);
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.LabelField("Warping (Distortion)", EditorStyles.boldLabel);
+
+            EditorGUILayout.PropertyField(warpNoiseStrength, new GUIContent("Warp Noise Strength"));
+            EditorGUILayout.PropertyField(warpNoiseFrequency, new GUIContent("Warp Noise Frequency"));
+            EditorGUILayout.PropertyField(falloffNoiseSmoothness, new GUIContent("Falloff Noise Smoothness"));
+
+        });
+    }
+
+    private void drawWaterSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Water", sectionColor);
+
+            EditorGUILayout.PropertyField(enableWater);
+
+            if (enableWater.boolValue == true) {
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Lakes", EditorStyles.boldLabel);
+
+                EditorGUILayout.PropertyField(lakeNoiseFrequency, new GUIContent("Lake Noise Frequency"));
+                EditorGUILayout.PropertyField(lakeDensityThreshold, new GUIContent("Lake Density Threshold"));
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Rivers", EditorStyles.boldLabel);
+
+                EditorGUILayout.PropertyField(riverNoiseFrequency, new GUIContent("River Noise Frequency"));
+                EditorGUILayout.PropertyField(riverWidth);
+
+            }
+
+            else {
+
+                EditorGUILayout.HelpBox("Water generation is disabled.", MessageType.Warning);
+
+            }
+        });
+    }
+
+    private void drawObstaclesSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Obstacles", sectionColor);
+
+            EditorGUILayout.PropertyField(enableObstacles);
+
+            if (enableObstacles.boolValue == true) {
+
+                EditorGUILayout.Space(2);
+                EditorGUILayout.PropertyField(obstaclesSafeZone, new GUIContent("Safe Zone Radius"));
+
+            }
+
+            if (enableObstacles.boolValue == false) {
+
+                EditorGUILayout.HelpBox("Obstacles are disabled.", MessageType.Warning);
+
+            }
+
+            else {
+
+                EditorGUILayout.HelpBox("Controlled by individual Biome Configs.", MessageType.Info);
+
+            }
+        });
+    }
+
+    private void drawEnemiesSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Enemies", sectionColor);
+
+            EditorGUILayout.PropertyField(enableEnemies);
+
+            if (enableEnemies.boolValue == true) {
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Spawn Config", EditorStyles.boldLabel);
+
+                EditorGUILayout.Slider(mainEnemyProbability, 0f, 1f, new GUIContent("Main Enemy Prob."));
+                EditorGUILayout.PropertyField(enemiesSafeZone);
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Groups", EditorStyles.boldLabel);
+
+                EditorGUILayout.PropertyField(minimumGroupSeparation);
+                EditorGUILayout.PropertyField(turnsToRespawn);
+
+                EditorGUILayout.Space(5);
+
+                drawGroupWeightsList();
+
+            }
+
+            else {
+
+                EditorGUILayout.HelpBox("Enemy generation is disabled.", MessageType.Warning);
+
+            }
+        });
+    }
+
+    private void drawGroupWeightsList() {
+
+        EditorGUILayout.LabelField("Group Size Weights", EditorStyles.boldLabel);
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        EditorGUILayout.BeginHorizontal();
+
+        if (GUILayout.Button("+ Add Weight") == true) {
+
+            groupSizeWeights.InsertArrayElementAtIndex(groupSizeWeights.arraySize);
+
+        }
+
+        bool canResetArray = groupSizeWeights.arraySize > 0;
+
+        if (GUILayout.Button("Reset") == true && canResetArray == true) {
+
+            groupSizeWeights.ClearArray();
+
+        }
+
+        EditorGUILayout.EndHorizontal();
+
+        if (groupSizeWeights.arraySize == 0) {
+
+            EditorGUILayout.HelpBox("Empty: Default weights (50, 50) will be used.", MessageType.Info);
+
+        }
+
+        for (int index = 0; index < groupSizeWeights.arraySize; index = index + 1) {
+
+            SerializedProperty weightProperty = groupSizeWeights.GetArrayElementAtIndex(index);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Size " + (index + 1) + " Weight:", GUILayout.Width(100));
+
+            weightProperty.intValue = EditorGUILayout.IntField(GUIContent.none, weightProperty.intValue);
+
+            if (GUILayout.Button("X", GUILayout.Width(25)) == true) {
+
+                groupSizeWeights.DeleteArrayElementAtIndex(index);
+
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+        }
+
+        EditorGUILayout.EndVertical();
+
+    }
+
+    private void drawEntitiesSection(Color sectionColor) {
+
+        EditorGUILayout.Space(5);
+
+        drawColoredBlock(sectionColor, () => {
+
+            drawHeader("Entities", sectionColor);
+
+            EditorGUILayout.PropertyField(enableEntities);
+
+            if (enableEntities.boolValue == true) {
+
+                EditorGUILayout.Space(2);
+                EditorGUILayout.PropertyField(entitiesSafeZone);
+
+                EditorGUILayout.PropertyField(minimumEntitySeparation, new GUIContent("Min Separation"));
+                EditorGUILayout.PropertyField(minimumSameEntitySeparation, new GUIContent("Min Same Separation"));
+
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Entity Sector Spacings", EditorStyles.boldLabel);
+
+                EditorGUILayout.PropertyField(merchantSpacing, new GUIContent("Merchant Spacing"));
+                EditorGUILayout.PropertyField(goblinSpacing, new GUIContent("Goblin Spacing"));
+                EditorGUILayout.PropertyField(bonfireSpacing, new GUIContent("Bonfire Spacing"));
+                EditorGUILayout.PropertyField(chestSpacing, new GUIContent("Chest Spacing"));
+                EditorGUILayout.PropertyField(slimeSpacing, new GUIContent("Slime Spacing"));
+                EditorGUILayout.PropertyField(mimicSpacing, new GUIContent("Mimic Spacing"));
+
+            }
+
+            else {
+
+                EditorGUILayout.HelpBox("Entities are disabled.", MessageType.Warning);
+
+            }
+        });
+    }
+
+    // ============================================================
+    // Helpers & Color Logic
+    // ============================================================
+
+    private void drawColoredBlock(Color sectionColor, System.Action executionBody) {
+
+        Color borderColor = sectionColor * 0.6f;
+        borderColor.a = 1f;
+        GUI.backgroundColor = borderColor;
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+        GUI.backgroundColor = sectionColor;
+
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+        GUI.backgroundColor = Color.white;
+        executionBody();
+
+        EditorGUILayout.EndVertical();
+        EditorGUILayout.EndVertical();
+
+    }
+
+    private void drawHeader(string titleString, Color backgroundColor) {
+
+        EditorGUILayout.LabelField(titleString, headerStyle);
+        drawSeparationLine(backgroundColor);
+        EditorGUILayout.Space(5);
+
+    }
+
+    private void drawSeparationLine(Color lineColor) {
+
+        Color targetLineColor = lineColor * 0.6f;
+        targetLineColor.a = 1f;
+
+        Rect controlRect = EditorGUILayout.GetControlRect(false, 2);
+        EditorGUI.DrawRect(controlRect, targetLineColor);
+
+    }
+
+    private Color getBiomeColor(string biomeName) {
+
+        bool isBiomeNameEmpty = string.IsNullOrEmpty(biomeName);
+
+        if (isBiomeNameEmpty == true) {
+
+            return new Color(0.95f, 0.95f, 1f);
+
+        }
+
+        string lowerCaseName = biomeName.Trim().ToLower();
+
+        // Meadow
+        if (lowerCaseName.Contains("meadow") == true) {
+
+            return convertHexToColor("81C784");
+
+        }
+
+        // Mushroom
+        if (lowerCaseName.Contains("mushroom") == true) {
+
+            return convertHexToColor("9575CD");
+
+        }
+
+        // Forest
+        if (lowerCaseName.Contains("forest") == true) {
+
+            return convertHexToColor("4DB6AC");
+
+        }
+
+        // Swamp
+        if (lowerCaseName.Contains("swamp") == true) {
+
+            return convertHexToColor("D4E157");
+
+        }
+
+        // Ruins
+        bool isRuin = lowerCaseName.Contains("ruin");
+        bool isAncient = lowerCaseName.Contains("ancient");
+
+        if (isRuin == true || isAncient == true) {
+
+            return convertHexToColor("90A4AE");
+
+        }
+
+        return new Color(0.95f, 0.95f, 1f);
+
+    }
+
+    private Color convertHexToColor(string hexString) {
+
+        Color parsedColor = Color.white;
+        bool isParsingSuccessful = ColorUtility.TryParseHtmlString("#" + hexString, out parsedColor);
+
+        if (isParsingSuccessful == true) {
+
+            return parsedColor;
+
+        }
+
+        return Color.white;
+
+    }
+}
