@@ -1,0 +1,348 @@
+// ============================================================
+// Readme of SplineChain
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the procedural animation of sequential objects (chain links) along a Unity SplineContainer.
+It is used to create dynamic, flowing chains for combat visuals and the death sequence, incorporating pooling for performance and mathematical offsets for organic idle breathing motions.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Instantiates and pools a specified number of chain link prefabs upon startup.
+- Calculates dynamic delay timings based on the spline's total length and the individual link size.
+- Animates the links sequentially along the spline over a set duration.
+- Applies a sine-wave-based breathing effect to the normalized time of each link to simulate tension and organic movement.
+- Safely removes or reverses the chain animation with optional delays.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Splines;
+
+public class SplineChain : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("References")]
+    public SplineContainer splineTarget;
+    public GameObject linkPrefab;
+
+    // ============================================================
+    // Chain Settings
+    // ============================================================
+
+    [Header("Chain Settings")]
+    public int linkCount;
+    public float linkSize;
+
+    // ============================================================
+    // Animation Settings
+    // ============================================================
+
+    [Header("Animation Settings")]
+    public float duration;
+    public float startDelay;
+    public float removeDelay = 0f;
+
+    // ============================================================
+    // Idle Animation
+    // ============================================================
+
+    [Header("Idle Animation")]
+    public bool enableIdleBreathing = true;
+    public float idleSpeed;
+    public float idleAmplitude;
+    public float idleWaveOffset;
+
+    // ============================================================
+    // Effects
+    // ============================================================
+
+    [Header("Effects")]
+    public bool reverseDirection = false;
+    public bool triggerCameraShake = false;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private List<SplineAnimate> linkPoolList = new List<SplineAnimate>();
+    private Coroutine delayCoroutine;
+
+    private bool isMoving = false;
+    private bool isRemoving = false;
+
+    private float moveTimer = 0f;
+    private float cachedSplineLength = 0f;
+    private float dynamicDelay = 0f;
+
+    private void Start() {
+
+        if (splineTarget == null) {
+
+            splineTarget = GetComponent<SplineContainer>();
+
+        }
+
+        if (splineTarget != null) {
+
+            cachedSplineLength = splineTarget.CalculateLength();
+
+            if (cachedSplineLength > 0f) {
+
+                dynamicDelay = (linkSize / cachedSplineLength) * duration;
+
+            }
+        }
+
+        bool hasPrefabAndTarget = linkPrefab != null && splineTarget != null;
+
+        if (hasPrefabAndTarget == true) {
+
+            for (int linkIndex = 0; linkIndex < linkCount; linkIndex = linkIndex + 1) {
+
+                GameObject newChainLink = Instantiate(linkPrefab, transform);
+                newChainLink.name = $"ChainLink_Pool_{linkIndex:00}";
+
+                SplineAnimate linkAnimator = newChainLink.GetComponent<SplineAnimate>();
+
+                if (linkAnimator != null) {
+
+                    linkAnimator.Container = splineTarget;
+                    linkAnimator.AnimationMethod = SplineAnimate.Method.Time;
+                    linkAnimator.Duration = duration;
+                    linkAnimator.Loop = SplineAnimate.LoopMode.Once;
+                    linkAnimator.PlayOnAwake = false;
+                    linkAnimator.NormalizedTime = 0f;
+
+                }
+
+                newChainLink.SetActive(false);
+                linkPoolList.Add(linkAnimator);
+
+            }
+        }
+    }
+
+    private void Update() {
+
+        bool isDeployed = isMoving == false && isRemoving == false && moveTimer >= duration;
+
+        if (isMoving == false && isRemoving == false && (isDeployed == false || enableIdleBreathing == false)) {
+
+            return;
+
+        }
+
+        float safeDeltaTime = Mathf.Min(Time.deltaTime, 0.05f);
+
+        if (isMoving == true) {
+
+            moveTimer = moveTimer + safeDeltaTime;
+
+            if (moveTimer > duration) {
+
+                moveTimer = duration;
+
+            }
+        }
+
+        else if (isRemoving == true) {
+
+            moveTimer = moveTimer - safeDeltaTime;
+
+            if (moveTimer < 0f) {
+
+                moveTimer = 0f;
+
+            }
+        }
+
+        for (int linkIndex = 0; linkIndex < linkCount; linkIndex = linkIndex + 1) {
+
+            if (linkIndex >= linkPoolList.Count) {
+
+                break;
+
+            }
+
+            float linkStartTime = linkIndex * dynamicDelay;
+            SplineAnimate linkAnimator = linkPoolList[linkIndex];
+
+            if (moveTimer > linkStartTime) {
+
+                if (linkAnimator.gameObject.activeSelf == false) {
+
+                    linkAnimator.gameObject.SetActive(true);
+
+                }
+
+                float normalizedTimeFraction = (moveTimer - linkStartTime) / duration;
+
+                if (enableIdleBreathing == true) {
+
+                    float idleWaveValue = Mathf.Sin((Time.time * idleSpeed) - (linkIndex * idleWaveOffset)) * idleAmplitude;
+                    idleWaveValue = idleWaveValue * Mathf.Clamp01(normalizedTimeFraction * 2f);
+
+                    normalizedTimeFraction = normalizedTimeFraction + idleWaveValue;
+
+                }
+
+                normalizedTimeFraction = Mathf.Clamp01(normalizedTimeFraction);
+
+                if (reverseDirection == true) {
+
+                    linkAnimator.NormalizedTime = 1f - normalizedTimeFraction;
+
+                }
+
+                else {
+
+                    linkAnimator.NormalizedTime = normalizedTimeFraction;
+
+                }
+            }
+
+            else {
+
+                if (linkAnimator.gameObject.activeSelf == true) {
+
+                    linkAnimator.gameObject.SetActive(false);
+
+                }
+            }
+        }
+
+        if (isMoving == true && moveTimer >= duration) {
+
+            stopChainAnimation();
+
+        }
+
+        else if (isRemoving == true && moveTimer <= 0f) {
+
+            isRemoving = false;
+            clearChain();
+
+        }
+    }
+
+    // ============================================================
+    // Animation Controls
+    // ============================================================
+
+    public void clearChain() {
+
+        isMoving = false;
+        isRemoving = false;
+
+        foreach (SplineAnimate linkAnimator in linkPoolList) {
+
+            if (linkAnimator != null) {
+
+                linkAnimator.gameObject.SetActive(false);
+
+            }
+        }
+    }
+
+    public void playChainAnimation() {
+
+        if (delayCoroutine != null) {
+
+            StopCoroutine(delayCoroutine);
+
+        }
+
+        clearChain();
+
+        if (startDelay > 0f) {
+
+            delayCoroutine = StartCoroutine(waitAndPlayRoutine());
+
+        }
+
+        else {
+
+            startMoving();
+
+        }
+    }
+
+    private IEnumerator waitAndPlayRoutine() {
+
+        yield return new WaitForSeconds(startDelay);
+        startMoving();
+
+    }
+
+    private void startMoving() {
+
+        moveTimer = 0f;
+        isMoving = true;
+        isRemoving = false;
+
+    }
+
+    public void removeChainAnimation() {
+
+        if (delayCoroutine != null) {
+
+            StopCoroutine(delayCoroutine);
+
+        }
+
+        isMoving = false;
+
+        if (removeDelay > 0f) {
+
+            delayCoroutine = StartCoroutine(waitAndRemoveRoutine());
+
+        }
+
+        else {
+
+            startRemoving();
+
+        }
+    }
+
+    private IEnumerator waitAndRemoveRoutine() {
+
+        yield return new WaitForSeconds(removeDelay);
+        startRemoving();
+
+    }
+
+    private void startRemoving() {
+
+        isMoving = false;
+        isRemoving = true;
+
+    }
+
+    private void stopChainAnimation() {
+
+        isMoving = false;
+
+        if (triggerCameraShake == true) {
+
+            if (CameraShake.Instance != null) {
+
+                CameraShake.Instance.shakeCamera(3f, 3.0f, 0.2f);
+
+            }
+        }
+    }
+}
