@@ -55,8 +55,8 @@ The following screenshots display BIOLEECH gameplay and environments:
 
 <p align="center">
   <img src="/Assets/IMG1.png" alt="Candletales Screenshot 1" width="30%"/>
-  <img src="/Assets/IMG2.jpeg" alt="Candletales Screenshot 2" width="30%"/>
-  <img src="/Assets/IMG3.jpeg" alt="Candletales Screenshot 3" width="30%"/>
+  <img src="/Assets/IMG2.png" alt="Candletales Screenshot 2" width="30%"/>
+  <img src="/Assets/IMG3.png" alt="Candletales Screenshot 3" width="30%"/>
 
 The official Candletales trailer is available on:
 
