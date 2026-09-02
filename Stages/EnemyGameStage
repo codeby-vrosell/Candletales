@@ -1,0 +1,45 @@
+// ============================================================
+// Readme of EnemyGameStage
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to configure enemy-specific progression stages.
+It acts as a data container to dynamically adjust the spawn probability weights of specific enemies as the player advances through the game.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores internal string identifiers for the progression stage and the target enemy.
+- Holds a direct reference to the enemy's TileType for the procedural generator.
+- Provides a boolean toggle to determine if the enemy's spawn weight should be overridden during this stage.
+- Stores the integer value for the new spawn weight to influence generation probability.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class EnemyGameStage {
+
+    // ============================================================
+    // Identification Data
+    // ============================================================
+
+    [HideInInspector] public string name;
+    [HideInInspector] public string enemyName;
+    [HideInInspector] public TileType enemyTile;
+
+    // ============================================================
+    // Stage Modifiers
+    // ============================================================
+
+    public bool modifySpawnWeight;
+    public int spawnWeight;
+
+}
