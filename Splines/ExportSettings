@@ -1,0 +1,39 @@
+// ============================================================
+// Readme of ExportSettings
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to store coordinate system mapping and spatial configurations.
+It typically acts as a data container to handle the conversion of orientation and space settings when importing curve data from external 3D software.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores string identifiers for the designated up and forward axes.
+- Provides a boolean flag to determine if the imported data should be evaluated in world space instead of local space.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+[System.Serializable]
+public class ExportSettings {
+
+    // ============================================================
+    // Coordinate Mapping
+    // ============================================================
+
+    public string axisUp;
+    public string axisForward;
+
+    // ============================================================
+    // Spatial Settings
+    // ============================================================
+
+    public bool isWorldSpace;
+
+}
