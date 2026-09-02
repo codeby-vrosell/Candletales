@@ -1,0 +1,57 @@
+// ============================================================
+// Readme of UIBillboard
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script forces a 3D UI element to act as a billboard, ensuring it always rotates to face the main camera.
+It guarantees that floating elements remain perfectly readable regardless of the camera's current angle or position in the 3D space.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Automatically locates and caches a reference to the main camera upon startup.
+- Calculates the camera's forward and upward directional vectors during the LateUpdate cycle.
+- Adjusts the GameObject's rotation so that it perfectly aligns with the camera's viewing plane.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class UIBillboard : MonoBehaviour {
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private Camera mainCamera;
+
+    private void Start() {
+
+        mainCamera = Camera.main;
+
+    }
+
+    // ============================================================
+    // Billboard Logic
+    // ============================================================
+
+    private void LateUpdate() {
+
+        bool hasCameraReference = mainCamera != null;
+
+        if (hasCameraReference == true) {
+
+            Vector3 cameraForward = mainCamera.transform.rotation * Vector3.forward;
+            Vector3 cameraUp = mainCamera.transform.rotation * Vector3.up;
+
+            transform.LookAt(transform.position + cameraForward, cameraUp);
+
+        }
+    }
+}
