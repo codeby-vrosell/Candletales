@@ -1,0 +1,326 @@
+// ============================================================
+// Readme of GameStageDrawer (and sub-drawers)
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script contains custom PropertyDrawers for the Unity Editor, designed to improve the readability and organization of the game's progression data structures (GameStage, BiomeGameStage, EnemyGameStage). 
+It creates collapsible, dynamic UI elements in the Inspector that only display modifier values when their respective toggle is activated.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Overrides the default Unity GUI for GameStage to create a neat, foldout-based layout.
+- Dynamically calculates the required height of the properties based on their expanded or toggled states.
+- Provides dedicated sub-drawers for BiomeGameStage and EnemyGameStage to format their specific overrides.
+- Extracts and falls back on string names to dynamically label the foldout headers for quick identification.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEditor;
+using UnityEngine;
+
+// ============================================================
+// 1. Main Drawer: Game Stage
+// ============================================================
+
+[CustomPropertyDrawer(typeof(GameStage))]
+public class GameStageDrawer : PropertyDrawer {
+
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label) {
+
+        EditorGUI.BeginProperty(position, label, property);
+
+        float originalLabelWidth = EditorGUIUtility.labelWidth;
+        EditorGUIUtility.labelWidth = Mathf.Max(220f, position.width * 0.6f);
+
+        SerializedProperty nameProperty = property.FindPropertyRelative("stageName");
+        string stageTitle;
+
+        bool isNameEmpty = string.IsNullOrEmpty(nameProperty.stringValue);
+
+        if (isNameEmpty == true) {
+
+            stageTitle = "New Game Stage";
+
+        }
+
+        else {
+
+            stageTitle = "Stage: " + nameProperty.stringValue;
+
+        }
+
+        Rect foldoutRect = new Rect(position.x, position.y, position.width, EditorGUIUtility.singleLineHeight);
+
+        property.isExpanded = EditorGUI.Foldout(foldoutRect, property.isExpanded, stageTitle, true, EditorStyles.foldoutHeader);
+
+        if (property.isExpanded == true) {
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+
+            float positionY = position.y + EditorGUIUtility.singleLineHeight + 4f;
+
+            positionY = DrawProperty(position, positionY, nameProperty);
+            positionY = DrawProperty(position, positionY, property.FindPropertyRelative("turnToActivate"));
+
+            positionY = DrawConditional(position, positionY, property, "modifyMainEnemyProbability", "mainEnemyProbability");
+            positionY = DrawConditional(position, positionY, property, "modifyMinimumGroupSeparation", "minimumGroupSeparation");
+            positionY = DrawConditional(position, positionY, property, "modifyTurnsToRespawn", "turnsToRespawn");
+            positionY = DrawConditional(position, positionY, property, "modifyGroupSizeWeights", "groupSizeWeights");
+
+            positionY = positionY + 10f;
+
+            positionY = DrawProperty(position, positionY, property.FindPropertyRelative("biomeGameStages"), true);
+            positionY = DrawProperty(position, positionY, property.FindPropertyRelative("enemyGameStages"), true);
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel - 1;
+
+        }
+
+        EditorGUIUtility.labelWidth = originalLabelWidth;
+        EditorGUI.EndProperty();
+
+    }
+
+    public override float GetPropertyHeight(SerializedProperty property, GUIContent label) {
+
+        if (property.isExpanded == false) {
+
+            return EditorGUIUtility.singleLineHeight;
+
+        }
+
+        float totalHeight = EditorGUIUtility.singleLineHeight + 4f;
+
+        totalHeight = totalHeight + GetPropertyHeight(property.FindPropertyRelative("stageName"));
+        totalHeight = totalHeight + GetPropertyHeight(property.FindPropertyRelative("turnToActivate"));
+        
+        totalHeight = totalHeight + GetConditionalHeight(property, "modifyMainEnemyProbability", "mainEnemyProbability");
+        totalHeight = totalHeight + GetConditionalHeight(property, "modifyMinimumGroupSeparation", "minimumGroupSeparation");
+        totalHeight = totalHeight + GetConditionalHeight(property, "modifyTurnsToRespawn", "turnsToRespawn");
+        totalHeight = totalHeight + GetConditionalHeight(property, "modifyGroupSizeWeights", "groupSizeWeights");
+
+        totalHeight = totalHeight + 10f;
+
+        totalHeight = totalHeight + GetPropertyHeight(property.FindPropertyRelative("biomeGameStages"), true);
+        totalHeight = totalHeight + GetPropertyHeight(property.FindPropertyRelative("enemyGameStages"), true);
+
+        return totalHeight;
+
+    }
+
+    private float DrawProperty(Rect position, float positionY, SerializedProperty targetProperty, bool includeChildren = false) {
+
+        float propertyHeight = EditorGUI.GetPropertyHeight(targetProperty, includeChildren);
+        Rect propertyRect = new Rect(position.x, positionY, position.width, propertyHeight);
+
+        EditorGUI.PropertyField(propertyRect, targetProperty, includeChildren);
+
+        return positionY + propertyHeight + 2f;
+
+    }
+
+    private float GetPropertyHeight(SerializedProperty targetProperty, bool includeChildren = false) {
+
+        return EditorGUI.GetPropertyHeight(targetProperty, includeChildren) + 2f;
+
+    }
+
+    private float DrawConditional(Rect position, float positionY, SerializedProperty parentProperty, string toggleName, string valueName) {
+
+        positionY = positionY + 5f;
+
+        SerializedProperty toggleProperty = parentProperty.FindPropertyRelative(toggleName);
+        SerializedProperty valueProperty = parentProperty.FindPropertyRelative(valueName);
+
+        positionY = DrawProperty(position, positionY, toggleProperty);
+
+        if (toggleProperty.boolValue == true) {
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+            positionY = DrawProperty(position, positionY, valueProperty, true);
+            EditorGUI.indentLevel = EditorGUI.indentLevel - 1;
+
+        }
+
+        return positionY;
+
+    }
+
+    private float GetConditionalHeight(SerializedProperty parentProperty, string toggleName, string valueName) {
+
+        float conditionalHeight = 5f;
+
+        SerializedProperty toggleProperty = parentProperty.FindPropertyRelative(toggleName);
+        SerializedProperty valueProperty = parentProperty.FindPropertyRelative(valueName);
+
+        conditionalHeight = conditionalHeight + GetPropertyHeight(toggleProperty);
+
+        if (toggleProperty.boolValue == true) {
+
+            conditionalHeight = conditionalHeight + GetPropertyHeight(valueProperty, true);
+
+        }
+
+        return conditionalHeight;
+
+    }
+}
+
+// ============================================================
+// 2. Secondary Drawer: Biome Game Stage
+// ============================================================
+
+[CustomPropertyDrawer(typeof(BiomeGameStage))]
+public class BiomeGameStageDrawer : PropertyDrawer {
+
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label) {
+
+        EditorGUI.BeginProperty(position, label, property);
+
+        float originalLabelWidth = EditorGUIUtility.labelWidth;
+        EditorGUIUtility.labelWidth = Mathf.Max(200f, position.width * 0.55f);
+
+        float positionY = position.y;
+
+        SerializedProperty toggleProperty = property.FindPropertyRelative("modifyEnemyGroupFrequency");
+        SerializedProperty valueProperty = property.FindPropertyRelative("enemyGroupFrequency");
+
+        string displayName = property.FindPropertyRelative("biomeName").stringValue;
+
+        if (string.IsNullOrEmpty(displayName) == true) {
+
+            displayName = property.FindPropertyRelative("name").stringValue;
+
+        }
+
+        if (string.IsNullOrEmpty(displayName) == true) {
+
+            displayName = "Unknown Biome";
+
+        }
+
+        float toggleHeight = EditorGUI.GetPropertyHeight(toggleProperty);
+        Rect toggleRect = new Rect(position.x, positionY, position.width, toggleHeight);
+
+        GUIContent customLabel = new GUIContent(displayName);
+        EditorGUI.PropertyField(toggleRect, toggleProperty, customLabel);
+
+        positionY = positionY + toggleHeight + 2f;
+
+        if (toggleProperty.boolValue == true) {
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+
+            float valueHeight = EditorGUI.GetPropertyHeight(valueProperty);
+            Rect valueRect = new Rect(position.x, positionY, position.width, valueHeight);
+
+            EditorGUI.PropertyField(valueRect, valueProperty);
+            EditorGUI.indentLevel = EditorGUI.indentLevel - 1;
+
+        }
+
+        EditorGUIUtility.labelWidth = originalLabelWidth;
+        EditorGUI.EndProperty();
+
+    }
+
+    public override float GetPropertyHeight(SerializedProperty property, GUIContent label) {
+
+        SerializedProperty toggleProperty = property.FindPropertyRelative("modifyEnemyGroupFrequency");
+        SerializedProperty valueProperty = property.FindPropertyRelative("enemyGroupFrequency");
+
+        float totalHeight = EditorGUI.GetPropertyHeight(toggleProperty) + 2f;
+
+        if (toggleProperty.boolValue == true) {
+
+            totalHeight = totalHeight + EditorGUI.GetPropertyHeight(valueProperty) + 2f;
+
+        }
+
+        return totalHeight;
+
+    }
+}
+
+// ============================================================
+// 3. Secondary Drawer: Enemy Game Stage
+// ============================================================
+
+[CustomPropertyDrawer(typeof(EnemyGameStage))]
+public class EnemyGameStageDrawer : PropertyDrawer {
+
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label) {
+
+        EditorGUI.BeginProperty(position, label, property);
+
+        float originalLabelWidth = EditorGUIUtility.labelWidth;
+        EditorGUIUtility.labelWidth = Mathf.Max(200f, position.width * 0.55f);
+
+        float positionY = position.y;
+
+        SerializedProperty toggleProperty = property.FindPropertyRelative("modifySpawnWeight");
+        SerializedProperty valueProperty = property.FindPropertyRelative("spawnWeight");
+
+        string displayName = property.FindPropertyRelative("enemyName").stringValue;
+
+        if (string.IsNullOrEmpty(displayName) == true) {
+
+            displayName = property.FindPropertyRelative("name").stringValue;
+
+        }
+
+        if (string.IsNullOrEmpty(displayName) == true) {
+
+            displayName = "Unknown Enemy";
+
+        }
+
+        float toggleHeight = EditorGUI.GetPropertyHeight(toggleProperty);
+        Rect toggleRect = new Rect(position.x, positionY, position.width, toggleHeight);
+
+        GUIContent customLabel = new GUIContent(displayName);
+        EditorGUI.PropertyField(toggleRect, toggleProperty, customLabel);
+
+        positionY = positionY + toggleHeight + 2f;
+
+        if (toggleProperty.boolValue == true) {
+
+            EditorGUI.indentLevel = EditorGUI.indentLevel + 1;
+
+            float valueHeight = EditorGUI.GetPropertyHeight(valueProperty);
+            Rect valueRect = new Rect(position.x, positionY, position.width, valueHeight);
+
+            EditorGUI.PropertyField(valueRect, valueProperty);
+            EditorGUI.indentLevel = EditorGUI.indentLevel - 1;
+
+        }
+
+        EditorGUIUtility.labelWidth = originalLabelWidth;
+        EditorGUI.EndProperty();
+
+    }
+
+    public override float GetPropertyHeight(SerializedProperty property, GUIContent label) {
+
+        SerializedProperty toggleProperty = property.FindPropertyRelative("modifySpawnWeight");
+        SerializedProperty valueProperty = property.FindPropertyRelative("spawnWeight");
+
+        float totalHeight = EditorGUI.GetPropertyHeight(toggleProperty) + 2f;
+
+        if (toggleProperty.boolValue == true) {
+
+            totalHeight = totalHeight + EditorGUI.GetPropertyHeight(valueProperty) + 2f;
+
+        }
+
+        return totalHeight;
+
+    }
+}
