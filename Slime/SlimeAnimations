@@ -1,0 +1,243 @@
+// ============================================================
+// Readme of SlimeAnimations
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the procedural coroutine-based animations for the Slime entity.
+It handles specific visual feedback sequences such as eating dice, executing squash-and-stretch bounces, and smoothly scaling the entity during its artificial spawn and death phases.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Animates a target dice object by interpolating its position across a mathematical arc while shrinking its scale.
+- Executes a three-phase squash-and-stretch scale routine to give the Slime a gelatinous, bouncy physical presence.
+- Controls the scale-up interpolation when the Slime is artificially spawned (e.g., via card effects).
+- Handles the scale-down shrinking animation triggered upon the entity's death.
+- Safely invokes callback actions (Actions) upon the completion of any active animation sequence.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System;
+using System.Collections;
+using UnityEngine;
+
+public class SlimeAnimations : MonoBehaviour {
+
+    // ============================================================
+    // Eat Dice Animation Settings
+    // ============================================================
+
+    [Header("Eat Dices Animation Settings")]
+    [SerializeField] private float eatDuration;
+    [SerializeField] private float arcHeight;
+
+    [SerializeField] private Vector3 targetScale = Vector3.zero;
+
+    // ============================================================
+    // Squash & Stretch Animation Settings
+    // ============================================================
+
+    [Header("Squash & Stretch Animation Settings")]
+    [SerializeField] private float squashDuration;
+
+    [SerializeField] private Vector3 stretchScale = new Vector3();
+    [SerializeField] private Vector3 squashScale = new Vector3();
+
+    // ============================================================
+    // Artificial Spawn Animation Settings
+    // ============================================================
+
+    [Header("Artificial Spawn Animation Settings")]
+    [SerializeField] private float spawnDuration;
+
+    // ============================================================
+    // Death Animation Settings
+    // ============================================================
+
+    [Header("Death Animation Settings")]
+    [SerializeField] private float deathDuration;
+
+    // ============================================================
+    // Eat Dice Animation
+    // ============================================================
+
+    public void playEatDiceAnimation(Transform diceTransform, Action onAnimationComplete) {
+
+        StartCoroutine(eatDiceAnimation(diceTransform, onAnimationComplete));
+
+    }
+
+    private IEnumerator eatDiceAnimation(Transform diceTransform, Action onAnimationComplete) {
+
+        Vector3 startLocalPosition = diceTransform.localPosition;
+        Vector3 targetLocalPosition = Vector3.zero;
+        Vector3 startScale = diceTransform.localScale;
+
+        float elapsedTime = 0f;
+
+        while (elapsedTime < eatDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+
+            float timeFraction = elapsedTime / eatDuration;
+            Vector3 currentPosition = Vector3.Lerp(startLocalPosition, targetLocalPosition, timeFraction);
+
+            float currentArcHeight = Mathf.Sin(timeFraction * Mathf.PI) * arcHeight;
+            currentPosition.y = currentPosition.y + currentArcHeight;
+
+            diceTransform.localPosition = currentPosition;
+            diceTransform.localScale = Vector3.Lerp(startScale, targetScale, timeFraction);
+
+            yield return null;
+
+        }
+
+        diceTransform.localPosition = targetLocalPosition;
+        diceTransform.localScale = targetScale;
+
+        if (onAnimationComplete != null) {
+
+            onAnimationComplete.Invoke();
+
+        }
+    }
+
+    // ============================================================
+    // Slime Bounce Animation
+    // ============================================================
+
+    public void playSquashAndStretch(Action onAnimationComplete) {
+
+        StartCoroutine(squashAndStretchRoutine(onAnimationComplete));
+
+    }
+
+    private IEnumerator squashAndStretchRoutine(Action onAnimationComplete) {
+
+        Vector3 originalScale = transform.localScale;
+
+        float elapsedTime = 0f;
+        float phaseOneDuration = squashDuration * 0.3f;
+
+        while (elapsedTime < phaseOneDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            transform.localScale = Vector3.Lerp(originalScale, stretchScale, elapsedTime / phaseOneDuration);
+
+            yield return null;
+
+        }
+
+        elapsedTime = 0f;
+        float phaseTwoDuration = squashDuration * 0.4f;
+
+        while (elapsedTime < phaseTwoDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            transform.localScale = Vector3.Lerp(stretchScale, squashScale, elapsedTime / phaseTwoDuration);
+
+            yield return null;
+
+        }
+
+        elapsedTime = 0f;
+        float phaseThreeDuration = squashDuration * 0.3f;
+
+        while (elapsedTime < phaseThreeDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            transform.localScale = Vector3.Lerp(squashScale, originalScale, elapsedTime / phaseThreeDuration);
+
+            yield return null;
+
+        }
+
+        transform.localScale = originalScale;
+
+        if (onAnimationComplete != null) {
+
+            onAnimationComplete.Invoke();
+
+        }
+    }
+
+    // ============================================================
+    // Artificial Spawn Animation (Card Function)
+    // ============================================================
+
+    public void playSpawnAnimation(Action onAnimationComplete = null) {
+
+        StartCoroutine(spawnRoutine(onAnimationComplete));
+
+    }
+
+    private IEnumerator spawnRoutine(Action onAnimationComplete) {
+
+        transform.localScale = Vector3.zero;
+        Vector3 targetLocalScale = Vector3.one;
+
+        float elapsedTime = 0f;
+
+        while (elapsedTime < spawnDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            float timeFraction = Mathf.Clamp01(elapsedTime / spawnDuration);
+
+            transform.localScale = Vector3.Lerp(Vector3.zero, targetLocalScale, timeFraction);
+
+            yield return null;
+
+        }
+
+        transform.localScale = targetLocalScale;
+
+        if (onAnimationComplete != null) {
+
+            onAnimationComplete.Invoke();
+
+        }
+    }
+
+    // ============================================================
+    // Death Animation
+    // ============================================================
+
+    public void playDeathAnimation(Action onAnimationComplete) {
+
+        StartCoroutine(deathAnimationRoutine(onAnimationComplete));
+
+    }
+
+    private IEnumerator deathAnimationRoutine(Action onAnimationComplete) {
+
+        Vector3 startScale = transform.localScale;
+        Vector3 targetShrinkScale = Vector3.zero;
+
+        float elapsedTime = 0f;
+
+        while (elapsedTime < deathDuration) {
+
+            elapsedTime = elapsedTime + Time.deltaTime;
+            float timeFraction = Mathf.Clamp01(elapsedTime / deathDuration);
+
+            transform.localScale = Vector3.Lerp(startScale, targetShrinkScale, timeFraction);
+
+            yield return null;
+
+        }
+
+        transform.localScale = targetShrinkScale;
+
+        if (onAnimationComplete != null) {
+
+            onAnimationComplete.Invoke();
+
+        }
+    }
+}
