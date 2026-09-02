@@ -56,7 +56,7 @@ public class MarineAnimalController : MonoBehaviour {
     // ============================================================
 
     private Renderer animalRenderer;
-    private GridAnimations gridAnimationsScript;
+    private GridAnimator gridAnimatorScript;
     private MaterialPropertyBlock propertyBlock;
     private Animator animalAnimator;
 
@@ -207,15 +207,15 @@ public class MarineAnimalController : MonoBehaviour {
             }
         }
 
-        if (gridAnimationsScript == null && GridManager.Instance != null) {
+        if (gridAnimatorScript == null && GridManager.Instance != null) {
 
-            gridAnimationsScript = GridManager.Instance.GetComponent<GridAnimations>();
+            gridAnimatorScript = GridManager.Instance.GetComponent<GridAnimator>();
 
         }
 
         bool isRecentering = false;
 
-        if (gridAnimationsScript != null && gridAnimationsScript.centerAnimationEnded == false) {
+        if (gridAnimatorScript != null && gridAnimatorScript.centerAnimationEnded == false) {
 
             isRecentering = true;
 
