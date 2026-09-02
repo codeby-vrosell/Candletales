@@ -1,0 +1,45 @@
+// ============================================================
+// Readme of BiomeGameStage
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to represent a specific game progression stage for a biome.
+It acts as a configuration container to dynamically adjust generation parameters, such as the density of enemy groups, as the player advances through the game.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores internal string identifiers for the stage and its associated biome.
+- Provides a boolean toggle to determine if enemy group frequencies should be modified.
+- Holds a clamped float value to adjust the specific enemy group spawn rate from the Unity Inspector.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class BiomeGameStage {
+
+    // ============================================================
+    // Identification Data
+    // ============================================================
+
+    [HideInInspector] public string name;
+    [HideInInspector] public string biomeName;
+
+    // ============================================================
+    // Stage Modifiers
+    // ============================================================
+
+    public bool modifyEnemyGroupFrequency;
+    
+    [Range(0f, 1f)] 
+    public float enemyGroupFrequency;
+
+}
