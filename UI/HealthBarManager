@@ -1,0 +1,226 @@
+// ============================================================
+// Readme of HealthBarManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the visual representation of health bars for entities in the game.
+It handles smooth interpolation for both taking damage (with a delayed visual catch-up effect) and healing. 
+Additionally, it updates the health text efficiently without generating unnecessary memory garbage and forces the UI elements to billboard, always facing the main camera.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Subscribes to the parent HealthSystem's events to react to damage, healing, and max health changes.
+- Interpolates the primary and delayed fill images to provide dynamic visual feedback.
+- Updates the health text display only when the numerical values change, optimizing performance.
+- Rotates specified child UI elements during LateUpdate to continuously face the camera.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+public class HealthBarManager : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("References")]
+    [SerializeField] private Image fillImage;
+    [SerializeField] private Image delayedFillImage;
+    [SerializeField] private TextMeshProUGUI lifeNumberText;
+
+    // ============================================================
+    // Bar Settings
+    // ============================================================
+
+    [Header("Bar Settings")]
+    public Color mainColor;
+    public Color delayedColor;
+
+    public float delayWaitTime;
+    public float delaySpeed;
+    public float healSpeed = 5f;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private HealthSystem healthSystem;
+    private float delayTimer;
+    private Camera mainCamera;
+    private Transform[] childrenToRotateArray;
+    private float targetFill;
+
+    // Variables to avoid generating memory 'garbage' by creating unnecessary strings in Update
+    private int lastDisplayedHealth = -1;
+    private int lastMaximumHealth = -1;
+
+    private void Start() {
+
+        mainCamera = Camera.main;
+        healthSystem = GetComponentInParent<HealthSystem>();
+
+        int childCount = transform.childCount;
+        childrenToRotateArray = new Transform[childCount];
+
+        for (int childIndex = 0; childIndex < childCount; childIndex = childIndex + 1) {
+
+            childrenToRotateArray[childIndex] = transform.GetChild(childIndex);
+
+        }
+
+        if (healthSystem != null) {
+
+            healthSystem.onDamaged += onHealthChanged;
+            healthSystem.onDamagedKnockback += onHealthChangedKnockback;
+            healthSystem.onHealed += onHealed;
+            healthSystem.onMaxHealthChanged += onMaximumHealthChanged; // We subscribe to the new event
+            healthSystem.OnDeath += onDeath;
+
+            fillImage.color = mainColor;
+            delayedFillImage.color = delayedColor;
+
+            targetFill = healthSystem.CurrentHealth / healthSystem.MaxHealth;
+            fillImage.fillAmount = targetFill;
+            delayedFillImage.fillAmount = targetFill;
+            
+            updateText();
+
+        }
+    }
+
+    private void Update() {
+
+        // 1. HEALING LOGIC
+        if (fillImage.fillAmount < targetFill) {
+
+            fillImage.fillAmount = Mathf.Lerp(fillImage.fillAmount, targetFill, Time.deltaTime * healSpeed);
+            delayedFillImage.fillAmount = fillImage.fillAmount;
+
+        }
+
+        // 2. DAMAGE LOGIC
+        if (delayedFillImage.fillAmount > fillImage.fillAmount) {
+
+            delayTimer = delayTimer - Time.deltaTime;
+
+            if (delayTimer <= 0f) {
+
+                delayedFillImage.fillAmount = Mathf.Lerp(delayedFillImage.fillAmount, fillImage.fillAmount, Time.deltaTime * delaySpeed);
+
+            }
+        }
+
+        // We update the text continuously so that it interpolates the numbers
+        updateText();
+
+    }
+
+    // ============================================================
+    // Billboard Logic
+    // ============================================================
+
+    private void LateUpdate() {
+
+        bool hasReferences = childrenToRotateArray != null && mainCamera != null;
+
+        if (hasReferences == true) {
+
+            Vector3 cameraForward = mainCamera.transform.rotation * Vector3.forward;
+            Vector3 cameraUp = mainCamera.transform.rotation * Vector3.up;
+
+            for (int childIndex = 0; childIndex < childrenToRotateArray.Length; childIndex = childIndex + 1) {
+
+                if (childrenToRotateArray[childIndex] != null) {
+
+                    childrenToRotateArray[childIndex].LookAt(childrenToRotateArray[childIndex].position + cameraForward, cameraUp);
+
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // UI Updates
+    // ============================================================
+
+    private void updateText() {
+
+        if (lifeNumberText != null) {
+
+            // We calculate the current visual health based on the image's fillAmount
+            int currentVisualHealth = Mathf.CeilToInt(fillImage.fillAmount * healthSystem.MaxHealth);
+            int currentMaximumHealth = Mathf.CeilToInt(healthSystem.MaxHealth);
+
+            // We only update the UI element (which has a performance cost) if the numbers have changed
+            bool hasHealthChanged = currentVisualHealth != lastDisplayedHealth || currentMaximumHealth != lastMaximumHealth;
+
+            if (hasHealthChanged == true) {
+
+                lifeNumberText.text = $"{currentVisualHealth}/{currentMaximumHealth}";
+                lastDisplayedHealth = currentVisualHealth;
+                lastMaximumHealth = currentMaximumHealth;
+
+            }
+        }
+    }
+
+    // ============================================================
+    // Events
+    // ============================================================
+
+    private void onHealthChanged() {
+
+        targetFill = healthSystem.CurrentHealth / healthSystem.MaxHealth;
+        fillImage.fillAmount = targetFill;
+        delayTimer = delayWaitTime;
+
+    }
+
+    private void onHealthChangedKnockback(Vector2Int pushVector, int force, bool isDirection) {
+
+        onHealthChanged();
+
+    }
+
+    private void onHealed() {
+
+        targetFill = healthSystem.CurrentHealth / healthSystem.MaxHealth;
+
+    }
+
+    // Treats the stat increase exactly like healing in the UI
+    private void onMaximumHealthChanged() {
+
+        targetFill = healthSystem.CurrentHealth / healthSystem.MaxHealth;
+
+    }
+
+    private void onDeath() {
+
+        // gameObject.SetActive(false);
+
+    }
+
+    private void OnDestroy() {
+
+        if (healthSystem != null) {
+
+            healthSystem.onDamaged -= onHealthChanged;
+            healthSystem.onDamagedKnockback -= onHealthChangedKnockback;
+            healthSystem.onHealed -= onHealed;
+            healthSystem.onMaxHealthChanged -= onMaximumHealthChanged; // Clear subscription
+            healthSystem.OnDeath -= onDeath;
+
+        }
+    }
+}
