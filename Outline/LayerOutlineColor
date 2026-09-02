@@ -1,0 +1,45 @@
+// ============================================================
+// Readme of LayerOutlineColor
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to map specific Unity LayerMasks to High Dynamic Range (HDR) outline colors. 
+It acts as a configuration container for visual highlighting systems, allowing different types of entities or interactables to have unique outline behaviors based on their physical layer.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores a Unity LayerMask to identify specific target groups of GameObjects.
+- Holds a primary HDR color for the default outline visual effect.
+- Holds a secondary HDR color to allow for alternating or pulsating outline visual effects.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class LayerOutlineColor {
+
+    // ============================================================
+    // Target Layer
+    // ============================================================
+
+    public LayerMask layerMask;
+
+    // ============================================================
+    // Outline Colors
+    // ============================================================
+
+    [ColorUsage(true, true)]
+    public Color primaryOutlineColor;
+    
+    [ColorUsage(true, true)]
+    public Color secondaryOutlineColor; 
+
+}
