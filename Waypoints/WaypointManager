@@ -1,0 +1,692 @@
+// ============================================================
+// Readme of WaypointManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the placement, tracking, and removal of player waypoints on the procedural grid.
+It handles raycast-based mouse interactions with a hold-to-confirm timer, delegates visual feedback to the WaypointAnimations component, and calculates off-screen pointer locations using boundary intersection math to guide the player towards waypoints that are outside the current camera view.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Processes middle-mouse input to detect valid grid cells for waypoint placement or removal.
+- Maintains a registry mapping grid positions to unique waypoint identifiers and instantiated prefabs.
+- Calculates the screen boundaries to dynamically position UI pointers pointing toward off-screen waypoints.
+- Controls the UI indicator color based on the next available waypoint identifier.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class WaypointManager : MonoBehaviour {
+
+    // ============================================================
+    // Singleton
+    // ============================================================
+
+    public static WaypointManager Instance;
+
+    // ============================================================
+    // Layer Settings
+    // ============================================================
+
+    [Header("Layer Settings")]
+    public LayerMask interactablesLayer;
+
+    // ============================================================
+    // Waypoint Settings
+    // ============================================================
+
+    [Header("Waypoint Settings")]
+    public List<GameObject> waypointPrefabsList;
+    public int unlockedWaypoints = 1;
+    public float timeToHold;
+
+    // ============================================================
+    // Pointer Settings
+    // ============================================================
+
+    [Header("Pointer Settings")]
+    public List<GameObject> pointerPrefabsList;
+    public Transform[] boardCornersArray = new Transform[4];
+
+    // ============================================================
+    // UI Indicator Settings
+    // ============================================================
+
+    [Header("UI Indicator Settings")]
+    public Image nextWaypointIndicator;
+    public List<Color> waypointColorsList;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Dictionary<Vector2Int, int> gridToWaypointIdentifierDictionary = new Dictionary<Vector2Int, int>();
+    private Dictionary<int, GameObject> identifierToInstanceDictionary = new Dictionary<int, GameObject>();
+    private Dictionary<int, GameObject> activePointersDictionary = new Dictionary<int, GameObject>();
+
+    private float holdTimer = 0f;
+    private Vector2Int? currentHoveredGridPosition = null;
+    private bool hasToggledThisHold = false;
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    private WaypointAnimations waypointAnimationsScript;
+    private PlayerControllerBase playerControllerScript;
+    private GridAnimations gridAnimationsScript;
+
+    private void Awake() {
+
+        if (Instance == null) {
+
+            Instance = this;
+
+        }
+
+        else {
+
+            Destroy(gameObject);
+
+        }
+
+        waypointAnimationsScript = GetComponent<WaypointAnimations>();
+
+    }
+
+    private void Start() {
+
+        playerControllerScript = FindFirstObjectByType<PlayerControllerBase>();
+        gridAnimationsScript = FindFirstObjectByType<GridAnimations>();
+
+        updateIndicatorColor();
+
+    }
+
+    private void Update() {
+
+        handleMouseInput();
+        updatePointers();
+
+    }
+
+    // ============================================================
+    // Mouse Interaction
+    // ============================================================
+
+    private void handleMouseInput() {
+
+        if (Input.GetMouseButton(2) == true) {
+
+            Ray cameraRay = Camera.main.ScreenPointToRay(Input.mousePosition);
+            RaycastHit[] raycastHitsArray = Physics.RaycastAll(cameraRay, Mathf.Infinity, interactablesLayer);
+
+            System.Array.Sort(raycastHitsArray, (firstHit, secondHit) => firstHit.distance.CompareTo(secondHit.distance));
+
+            if (raycastHitsArray.Length > 0) {
+
+                RaycastHit validRaycastHit = raycastHitsArray[0];
+                Vector2Int gridPosition = GridManager.Instance.worldToGridPosition(validRaycastHit.point);
+
+                bool hasIndicator = nextWaypointIndicator != null;
+
+                if (hasIndicator == true && hasToggledThisHold == false) {
+
+                    bool isGridPositionRegistered = gridToWaypointIdentifierDictionary.ContainsKey(gridPosition);
+
+                    if (isGridPositionRegistered == true) {
+
+                        int targetedIdentifier = gridToWaypointIdentifierDictionary[gridPosition];
+
+                        if (targetedIdentifier < waypointColorsList.Count) {
+
+                            nextWaypointIndicator.color = waypointColorsList[targetedIdentifier];
+
+                        }
+                    }
+
+                    else {
+
+                        updateIndicatorColor();
+
+                    }
+                }
+
+                if (currentHoveredGridPosition == gridPosition) {
+
+                    if (hasToggledThisHold == false) {
+
+                        bool isRemovingWaypoint = gridToWaypointIdentifierDictionary.ContainsKey(gridPosition);
+                        bool hasAvailableFlags = getAvailableWaypointIdentifier() != -1;
+
+                        if (isRemovingWaypoint == false && hasAvailableFlags == false) {
+
+                            if (holdTimer == 0f) {
+
+                                if (CameraShake.Instance != null) {
+
+                                    CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                                }
+                            }
+
+                            hasToggledThisHold = true;
+
+                            if (CursorManager.Instance != null) {
+
+                                CursorManager.Instance.setFillProgress(false);
+
+                            }
+                        }
+
+                        else {
+
+                            holdTimer = holdTimer + Time.deltaTime;
+
+                            if (CursorManager.Instance != null) {
+
+                                CursorManager.Instance.setFillProgress(true);
+                                CursorManager.Instance.updateFillProgress(holdTimer / timeToHold);
+
+                            }
+
+                            if (holdTimer >= timeToHold) {
+
+                                toggleWaypointAt(gridPosition);
+                                hasToggledThisHold = true;
+
+                                if (CursorManager.Instance != null) {
+
+                                    CursorManager.Instance.setFillProgress(false);
+
+                                }
+                            }
+                        }
+                    }
+                }
+
+                else {
+
+                    currentHoveredGridPosition = gridPosition;
+                    holdTimer = 0f;
+                    hasToggledThisHold = false;
+
+                    if (CursorManager.Instance != null) {
+
+                        CursorManager.Instance.setFillProgress(false);
+
+                    }
+                }
+            }
+
+            else {
+
+                if (CursorManager.Instance != null) {
+
+                    CursorManager.Instance.setFillProgress(false);
+
+                }
+            }
+        }
+
+        else {
+
+            bool wasInteracting = currentHoveredGridPosition != null;
+
+            holdTimer = 0f;
+            currentHoveredGridPosition = null;
+            hasToggledThisHold = false;
+
+            if (CursorManager.Instance != null) {
+
+                CursorManager.Instance.setFillProgress(false);
+
+            }
+
+            if (wasInteracting == true) {
+
+                updateIndicatorColor();
+
+            }
+        }
+    }
+
+    private void toggleWaypointAt(Vector2Int gridPosition) {
+
+        Cell targetCell;
+        bool didGetCell = GridManager.Instance.tryGetCells(gridPosition, out targetCell);
+
+        if (didGetCell == true) {
+
+            if (targetCell.isWalkable == false || targetCell.visual == null) {
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                }
+
+                return;
+
+            }
+
+            if (targetCell.layerType == MultiTileLayer.walkableNoSpawn) {
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                }
+
+                return;
+
+            }
+
+            bool isGridPositionRegistered = gridToWaypointIdentifierDictionary.ContainsKey(gridPosition);
+
+            if (isGridPositionRegistered == true) {
+
+                int identifierToRemove = gridToWaypointIdentifierDictionary[gridPosition];
+                removeWaypoint(identifierToRemove);
+
+                return;
+
+            }
+
+            if (playerControllerScript != null) {
+
+                if (playerControllerScript.isMoving == true) {
+
+                    if (CameraShake.Instance != null) {
+
+                        CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                    }
+
+                    return;
+
+                }
+
+                Vector2Int playerPosition = playerControllerScript.getCurrentGridPosition();
+
+                if (playerPosition == gridPosition) {
+
+                    if (CameraShake.Instance != null) {
+
+                        CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                    }
+
+                    return;
+
+                }
+            }
+
+            int availableIdentifier = getAvailableWaypointIdentifier();
+
+            if (availableIdentifier != -1) {
+
+                if (availableIdentifier >= waypointPrefabsList.Count) {
+
+                    return;
+
+                }
+
+                GameObject prefabToUse = waypointPrefabsList[availableIdentifier];
+                GameObject newWaypointInstance = Instantiate(prefabToUse, targetCell.visual.transform);
+
+                newWaypointInstance.transform.localPosition = Vector3.zero;
+
+                gridToWaypointIdentifierDictionary.Add(gridPosition, availableIdentifier);
+                identifierToInstanceDictionary.Add(availableIdentifier, newWaypointInstance);
+
+                waypointAnimationsScript.playFallWaypointAnimation(newWaypointInstance);
+                updateIndicatorColor();
+
+            }
+
+            else {
+
+                if (CameraShake.Instance != null) {
+
+                    CameraShake.Instance.shakeCamera(2f, 2.0f, 0.2f);
+
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // Waypoint API
+    // ============================================================
+
+    public bool hasWaypointAt(Vector2Int gridPosition) {
+
+        return gridToWaypointIdentifierDictionary.ContainsKey(gridPosition);
+
+    }
+
+    public bool isWaypointFalling() {
+
+        return waypointAnimationsScript.isWaypointFalling;
+
+    }
+
+    public void restoreWaypointVisual(Vector2Int gridPosition, GameObject cellVisualObject) {
+
+        bool isGridPositionRegistered = gridToWaypointIdentifierDictionary.ContainsKey(gridPosition);
+
+        if (isGridPositionRegistered == true) {
+
+            int waypointIdentifier = gridToWaypointIdentifierDictionary[gridPosition];
+
+            bool hasInstance = identifierToInstanceDictionary.ContainsKey(waypointIdentifier);
+            bool isInstanceNull = hasInstance == false || identifierToInstanceDictionary[waypointIdentifier] == null;
+
+            if (isInstanceNull == true) {
+
+                if (waypointIdentifier < waypointPrefabsList.Count) {
+
+                    GameObject prefabToUse = waypointPrefabsList[waypointIdentifier];
+                    GameObject newWaypointInstance = Instantiate(prefabToUse, cellVisualObject.transform);
+
+                    newWaypointInstance.transform.localPosition = Vector3.zero;
+
+                    identifierToInstanceDictionary[waypointIdentifier] = newWaypointInstance;
+
+                }
+            }
+        }
+    }
+
+    public void removeWaypoint(int waypointIdentifier) {
+
+        bool hasInstance = identifierToInstanceDictionary.ContainsKey(waypointIdentifier);
+
+        if (hasInstance == true) {
+
+            GameObject waypointInstance = identifierToInstanceDictionary[waypointIdentifier];
+
+            if (waypointInstance != null) {
+
+                waypointAnimationsScript.playVibrateAndDestroyWaypointAnimation(waypointInstance);
+
+            }
+
+            identifierToInstanceDictionary.Remove(waypointIdentifier);
+
+        }
+
+        bool hasActivePointer = activePointersDictionary.ContainsKey(waypointIdentifier);
+
+        if (hasActivePointer == true) {
+
+            if (activePointersDictionary[waypointIdentifier] != null) {
+
+                waypointAnimationsScript.playPointerUnscaleAndDestroyAnimation(activePointersDictionary[waypointIdentifier]);
+
+            }
+
+            activePointersDictionary.Remove(waypointIdentifier);
+
+        }
+
+        Vector2Int positionToRemove = Vector2Int.zero;
+        bool wasPositionFound = false;
+
+        foreach (KeyValuePair<Vector2Int, int> keyValuePair in gridToWaypointIdentifierDictionary) {
+
+            if (keyValuePair.Value == waypointIdentifier) {
+
+                positionToRemove = keyValuePair.Key;
+                wasPositionFound = true;
+                break;
+
+            }
+        }
+
+        if (wasPositionFound == true) {
+
+            gridToWaypointIdentifierDictionary.Remove(positionToRemove);
+
+        }
+
+        updateIndicatorColor();
+
+    }
+
+    public void unlockNextWaypoint() {
+
+        if (unlockedWaypoints < waypointPrefabsList.Count) {
+
+            unlockedWaypoints = unlockedWaypoints + 1;
+            updateIndicatorColor();
+
+        }
+    }
+
+    public bool isWaypointActive(int waypointIdentifier) {
+
+        foreach (KeyValuePair<Vector2Int, int> keyValuePair in gridToWaypointIdentifierDictionary) {
+
+            if (keyValuePair.Value == waypointIdentifier) {
+
+                return true;
+
+            }
+        }
+
+        return false;
+
+    }
+
+    private int getAvailableWaypointIdentifier() {
+
+        for (int waypointIndex = 0; waypointIndex < unlockedWaypoints; waypointIndex = waypointIndex + 1) {
+
+            bool hasInstance = identifierToInstanceDictionary.ContainsKey(waypointIndex);
+
+            if (hasInstance == false) {
+
+                return waypointIndex;
+
+            }
+        }
+
+        return -1;
+
+    }
+
+    // ============================================================
+    // UI Pointers Logic
+    // ============================================================
+
+    private void getBounds(out float minimumX, out float maximumX, out float minimumZ, out float maximumZ) {
+
+        minimumX = float.MaxValue;
+        maximumX = float.MinValue;
+        minimumZ = float.MaxValue;
+        maximumZ = float.MinValue;
+
+        foreach (Transform boardCorner in boardCornersArray) {
+
+            if (boardCorner == null) {
+
+                continue;
+
+            }
+
+            if (boardCorner.position.x < minimumX) {
+
+                minimumX = boardCorner.position.x;
+
+            }
+
+            if (boardCorner.position.x > maximumX) {
+
+                maximumX = boardCorner.position.x;
+
+            }
+
+            if (boardCorner.position.z < minimumZ) {
+
+                minimumZ = boardCorner.position.z;
+
+            }
+
+            if (boardCorner.position.z > maximumZ) {
+
+                maximumZ = boardCorner.position.z;
+
+            }
+        }
+    }
+
+    private void updatePointers() {
+
+        if (boardCornersArray == null || boardCornersArray.Length < 4) {
+
+            return;
+
+        }
+
+        getBounds(out float minimumX, out float maximumX, out float minimumZ, out float maximumZ);
+
+        Vector3 originPosition = new Vector3((minimumX + maximumX) / 2f, 0f, (minimumZ + maximumZ) / 2f);
+
+        foreach (KeyValuePair<Vector2Int, int> keyValuePair in gridToWaypointIdentifierDictionary) {
+
+            Vector2Int gridPosition = keyValuePair.Key;
+            int waypointIdentifier = keyValuePair.Value;
+
+            Vector3 waypointWorldPosition = GridManager.Instance.gridToWorldPosition(gridPosition);
+            waypointWorldPosition.y = 0f;
+
+            bool hasInstance = identifierToInstanceDictionary.ContainsKey(waypointIdentifier);
+            bool isOutside = hasInstance == false || identifierToInstanceDictionary[waypointIdentifier] == null;
+
+            if (isOutside == true) {
+
+                bool hasActivePointer = activePointersDictionary.ContainsKey(waypointIdentifier);
+
+                if (hasActivePointer == false) {
+
+                    if (waypointIdentifier < pointerPrefabsList.Count) {
+
+                        GameObject newPointerInstance = Instantiate(pointerPrefabsList[waypointIdentifier]);
+
+                        newPointerInstance.transform.SetParent(null);
+                        newPointerInstance.transform.localScale = Vector3.one * waypointAnimationsScript.pointerMinScale;
+
+                        activePointersDictionary.Add(waypointIdentifier, newPointerInstance);
+                        waypointAnimationsScript.playPointerScaleAnimation(newPointerInstance);
+
+                    }
+                }
+
+                bool doesPointerExist = activePointersDictionary.ContainsKey(waypointIdentifier);
+
+                if (doesPointerExist == true) {
+
+                    GameObject pointerInstance = activePointersDictionary[waypointIdentifier];
+                    Vector3 directionVector = waypointWorldPosition - originPosition;
+                    directionVector.y = 0f;
+
+                    float intersectionX = float.MaxValue;
+
+                    if (Mathf.Abs(directionVector.x) > 0.0001f) {
+
+                        if (directionVector.x > 0f) {
+
+                            intersectionX = (maximumX - originPosition.x) / directionVector.x;
+
+                        }
+
+                        else {
+
+                            intersectionX = (minimumX - originPosition.x) / directionVector.x;
+
+                        }
+                    }
+
+                    float intersectionZ = float.MaxValue;
+
+                    if (Mathf.Abs(directionVector.z) > 0.0001f) {
+
+                        if (directionVector.z > 0f) {
+                            
+                            intersectionZ = (maximumZ - originPosition.z) / directionVector.z;
+
+                        }
+
+                        else {
+                            
+                            intersectionZ = (minimumZ - originPosition.z) / directionVector.z;
+
+                        }
+                    }
+
+                    float minimumIntersection = Mathf.Min(intersectionX, intersectionZ);
+                    Vector3 pointerPosition = originPosition + (directionVector * minimumIntersection);
+                    pointerPosition.y = 0f;
+
+                    pointerInstance.transform.position = pointerPosition;
+                    pointerInstance.transform.rotation = Quaternion.identity;
+
+                }
+            }
+
+            else {
+
+                bool hasActivePointer = activePointersDictionary.ContainsKey(waypointIdentifier);
+
+                if (hasActivePointer == true) {
+
+                    GameObject pointerToDestroy = activePointersDictionary[waypointIdentifier];
+
+                    if (pointerToDestroy != null) {
+
+                        waypointAnimationsScript.playPointerUnscaleAndDestroyAnimation(pointerToDestroy);
+
+                    }
+
+                    activePointersDictionary.Remove(waypointIdentifier);
+
+                }
+            }
+        }
+    }
+
+    private void updateIndicatorColor() {
+
+        if (nextWaypointIndicator == null) {
+
+            return;
+
+        }
+
+        int nextAvailableIdentifier = getAvailableWaypointIdentifier();
+
+        if (nextAvailableIdentifier != -1 && nextAvailableIdentifier < waypointColorsList.Count) {
+
+            nextWaypointIndicator.color = waypointColorsList[nextAvailableIdentifier];
+
+        }
+
+        else {
+
+            nextWaypointIndicator.color = Color.clear;
+
+        }
+    }
+}
