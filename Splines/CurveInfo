@@ -1,0 +1,52 @@
+// ============================================================
+// Readme of CurveInfo
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure used to store detailed parameters of a single procedural or imported curve. 
+It acts as a data container mapping the curve's identity, physical properties, cyclic loop states, and its constituent points.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores basic string identifiers for the curve's name and type.
+- Holds the total calculated physical length of the curve.
+- Provides boolean flags to determine if the curve loops (is cyclic) across the U and V axes.
+- Contains a list of PointInfo elements representing the curve's vertices or control points.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+
+[System.Serializable]
+public class CurveInfo {
+
+    // ============================================================
+    // Identification Data
+    // ============================================================
+
+    public string curveName;
+    public string curveType;
+
+    // ============================================================
+    // Physical Properties
+    // ============================================================
+
+    public float curveLength;
+
+    public bool isCyclicU;
+    public bool isCyclicV;
+
+    // ============================================================
+    // Vertex Data
+    // ============================================================
+
+    public List<PointInfo> pointsList;
+
+}
