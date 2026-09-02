@@ -1,0 +1,312 @@
+// ============================================================
+// Readme of OutlineManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script manages the visual outline highlight effect when the player hovers the mouse cursor over interactable entities or objects.
+It uses a highly optimized approach with MaterialPropertyBlocks and cached collections to manipulate shader properties dynamically without creating new material instances, avoiding memory leaks and garbage collection spikes.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Projects a raycast from the main camera to detect colliders on the interactables layer.
+- Queries the IInteractable interface to verify if the object can be interacted with.
+- Caches renderer and material index data to prevent redundant GetComponent or string search calls.
+- Smoothly interpolates the alpha values of the outline shaders on hovered objects.
+- Retrieves the correct primary and secondary HDR outline colors based on the target's physical layer.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using System.Collections.Generic;
+using UnityEngine;
+
+public class OutlineManager : MonoBehaviour {
+
+    // ============================================================
+    // Outline Settings
+    // ============================================================
+
+    [Header("Outline Settings")]
+    public LayerMask interactablesLayer;
+
+    [Range(0f, 1f)]
+    public float maximumOutlineAlpha = 1f;
+    public float transitionSpeed;
+
+    // ============================================================
+    // Material Search Settings
+    // ============================================================
+
+    [Header("Material Search Settings")]
+    public string outlineMaterialName = "Outline";
+
+    // ============================================================
+    // Layer Outline Color Settings
+    // ============================================================
+
+    [Header("Layer Outline Color Settings")]
+    public List<LayerOutlineColor> colorConfigurations = new List<LayerOutlineColor>();
+
+    // ============================================================
+    // References & Internal State
+    // ============================================================
+
+    private Camera mainCamera;
+    private Collider currentHoveredCollider;
+    private HashSet<Renderer> currentTargetRenderers = new HashSet<Renderer>();
+    private Dictionary<Renderer, float> activeOutlines = new Dictionary<Renderer, float>();
+
+    // ============================================================
+    // Caches (Performance Optimization)
+    // ============================================================
+
+    private Dictionary<Collider, Renderer[]> rendererCache = new Dictionary<Collider, Renderer[]>();
+    private Dictionary<Renderer, int> rendererMaterialIndexCache = new Dictionary<Renderer, int>();
+
+    private MaterialPropertyBlock materialPropertyBlock;
+
+    private readonly int colorPropertyId = Shader.PropertyToID("_Color");
+    private readonly int secondaryColorPropertyId = Shader.PropertyToID("_Color2");
+    private readonly int alphaPropertyId = Shader.PropertyToID("_Alpha");
+
+    private void Awake() {
+
+        mainCamera = Camera.main;
+        materialPropertyBlock = new MaterialPropertyBlock();
+
+    }
+
+    private void Update() {
+
+        handleRaycast();
+        updateOutlineLerp();
+
+    }
+
+    // ============================================================
+    // Interaction Detection
+    // ============================================================
+
+    private void handleRaycast() {
+
+        Ray cameraRay = mainCamera.ScreenPointToRay(Input.mousePosition);
+        Collider hitCollider = null;
+        GameObject hitObject = null;
+        RaycastHit raycastHit;
+
+        bool isRaycastSuccessful = Physics.Raycast(cameraRay, out raycastHit, 1000f, interactablesLayer);
+
+        if (isRaycastSuccessful == true) {
+
+            IInteractable interactableComponent = raycastHit.collider.GetComponentInParent<IInteractable>();
+            bool canInteractWithObject = interactableComponent == null || interactableComponent.canInteract() == true;
+
+            if (canInteractWithObject == true) {
+
+                hitCollider = raycastHit.collider;
+                hitObject = hitCollider.gameObject;
+
+            }
+        }
+
+        if (hitCollider != currentHoveredCollider) {
+
+            currentHoveredCollider = hitCollider;
+            currentTargetRenderers.Clear();
+
+            if (currentHoveredCollider != null) {
+
+                Renderer[] renderersArray;
+                bool isColliderInCache = rendererCache.TryGetValue(currentHoveredCollider, out renderersArray);
+
+                if (isColliderInCache == false) {
+
+                    renderersArray = currentHoveredCollider.GetComponentsInChildren<Renderer>();
+                    rendererCache.Add(currentHoveredCollider, renderersArray);
+
+                }
+
+                (Color targetColor, Color secondaryTargetColor) = getColorsForLayer(hitObject.layer);
+
+                foreach (Renderer rendererComponent in renderersArray) {
+
+                    if (rendererComponent == null) {
+
+                        continue;
+
+                    }
+
+                    bool hasMaterialIndex = rendererMaterialIndexCache.ContainsKey(rendererComponent);
+
+                    if (hasMaterialIndex == false) {
+
+                        rendererMaterialIndexCache[rendererComponent] = findOutlineMaterialIndex(rendererComponent);
+
+                    }
+
+                    int outlineIndex = rendererMaterialIndexCache[rendererComponent];
+
+                    if (outlineIndex < 0) {
+
+                        continue;
+
+                    }
+
+                    currentTargetRenderers.Add(rendererComponent);
+
+                    bool hasActiveOutline = activeOutlines.ContainsKey(rendererComponent);
+
+                    if (hasActiveOutline == false) {
+
+                        rendererComponent.GetPropertyBlock(materialPropertyBlock, outlineIndex);
+
+                        materialPropertyBlock.SetColor(colorPropertyId, targetColor);
+                        materialPropertyBlock.SetColor(secondaryColorPropertyId, secondaryTargetColor);
+
+                        float startAlpha = materialPropertyBlock.GetFloat(alphaPropertyId);
+                        activeOutlines.Add(rendererComponent, startAlpha);
+
+                        rendererComponent.SetPropertyBlock(materialPropertyBlock, outlineIndex);
+
+                    }
+
+                    else {
+
+                        rendererComponent.GetPropertyBlock(materialPropertyBlock, outlineIndex);
+                        materialPropertyBlock.SetColor(colorPropertyId, targetColor);
+                        materialPropertyBlock.SetColor(secondaryColorPropertyId, secondaryTargetColor);
+                        rendererComponent.SetPropertyBlock(materialPropertyBlock, outlineIndex);
+
+                    }
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // Animation Logic
+    // ============================================================
+
+    private void updateOutlineLerp() {
+
+        if (activeOutlines.Count == 0) {
+
+            return;
+
+        }
+
+        List<Renderer> renderersToRemoveList = new List<Renderer>();
+        List<Renderer> keysList = new List<Renderer>(activeOutlines.Keys);
+
+        foreach (Renderer rendererComponent in keysList) {
+
+            if (rendererComponent == null) {
+
+                renderersToRemoveList.Add(rendererComponent);
+                continue;
+
+            }
+
+            int outlineIndex = rendererMaterialIndexCache[rendererComponent];
+
+            if (outlineIndex < 0) {
+
+                renderersToRemoveList.Add(rendererComponent);
+                continue;
+
+            }
+
+            float targetAlpha;
+            bool isRendererTargeted = currentTargetRenderers.Contains(rendererComponent);
+
+            if (isRendererTargeted == true) {
+
+                targetAlpha = maximumOutlineAlpha;
+
+            }
+
+            else {
+
+                targetAlpha = 0f;
+
+            }
+
+            float currentAlpha = activeOutlines[rendererComponent];
+            currentAlpha = Mathf.Lerp(currentAlpha, targetAlpha, Time.deltaTime * transitionSpeed);
+            activeOutlines[rendererComponent] = currentAlpha;
+
+            rendererComponent.GetPropertyBlock(materialPropertyBlock, outlineIndex);
+            materialPropertyBlock.SetFloat(alphaPropertyId, currentAlpha);
+            rendererComponent.SetPropertyBlock(materialPropertyBlock, outlineIndex);
+
+            bool isNotTargeted = currentTargetRenderers.Contains(rendererComponent) == false;
+
+            if (isNotTargeted == true && currentAlpha < 0.005f) {
+
+                rendererComponent.GetPropertyBlock(materialPropertyBlock, outlineIndex);
+                materialPropertyBlock.SetFloat(alphaPropertyId, 0f);
+                rendererComponent.SetPropertyBlock(materialPropertyBlock, outlineIndex);
+
+                renderersToRemoveList.Add(rendererComponent);
+
+            }
+        }
+
+        foreach (Renderer rendererToRemove in renderersToRemoveList) {
+
+            activeOutlines.Remove(rendererToRemove);
+
+        }
+    }
+
+    // ============================================================
+    // Utility Methods
+    // ============================================================
+
+    private (Color, Color) getColorsForLayer(int layerIndex) {
+
+        int layerBit = 1 << layerIndex;
+
+        foreach (LayerOutlineColor configuration in colorConfigurations) {
+
+            bool isLayerMatching = (configuration.layerMask.value & layerBit) != 0;
+
+            if (isLayerMatching == true) {
+
+                return (configuration.primaryOutlineColor, configuration.secondaryOutlineColor);
+
+            }
+        }
+
+        return (Color.white, Color.black);
+
+    }
+
+    private int findOutlineMaterialIndex(Renderer rendererComponent) {
+
+        Material[] materialsArray = rendererComponent.sharedMaterials;
+
+        for (int index = 0; index < materialsArray.Length; index = index + 1) {
+
+            if (materialsArray[index] != null) {
+
+                bool containsName = materialsArray[index].name.ToLower().Contains(outlineMaterialName.ToLower());
+
+                if (containsName == true) {
+
+                    return index;
+
+                }
+            }
+        }
+
+        return -1;
+
+    }
+}
