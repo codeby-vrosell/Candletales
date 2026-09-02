@@ -7,7 +7,7 @@
 // ============================================================
 
 This script manages the placement, tracking, and removal of player waypoints on the procedural grid.
-It handles raycast-based mouse interactions with a hold-to-confirm timer, delegates visual feedback to the WaypointAnimations component, and calculates off-screen pointer locations using boundary intersection math to guide the player towards waypoints that are outside the current camera view.
+It handles raycast-based mouse interactions with a hold-to-confirm timer, delegates visual feedback to the WaypointAnimator component, and calculates off-screen pointer locations using boundary intersection math to guide the player towards waypoints that are outside the current camera view.
 
 // ============================================================
 // Responsibilities
@@ -82,7 +82,7 @@ public class WaypointManager : MonoBehaviour {
     // References
     // ============================================================
 
-    private WaypointAnimations waypointAnimationsScript;
+    private waypointAnimator waypointAnimatorScript;
     private PlayerControllerBase playerControllerScript;
     private GridAnimations gridAnimationsScript;
 
@@ -100,7 +100,7 @@ public class WaypointManager : MonoBehaviour {
 
         }
 
-        waypointAnimationsScript = GetComponent<WaypointAnimations>();
+        waypointAnimatorScript = GetComponent<waypointAnimator>();
 
     }
 
@@ -350,7 +350,7 @@ public class WaypointManager : MonoBehaviour {
                 gridToWaypointIdentifierDictionary.Add(gridPosition, availableIdentifier);
                 identifierToInstanceDictionary.Add(availableIdentifier, newWaypointInstance);
 
-                waypointAnimationsScript.playFallWaypointAnimation(newWaypointInstance);
+                waypointAnimatorScript.playFallWaypointAnimation(newWaypointInstance);
                 updateIndicatorColor();
 
             }
@@ -378,7 +378,7 @@ public class WaypointManager : MonoBehaviour {
 
     public bool isWaypointFalling() {
 
-        return waypointAnimationsScript.isWaypointFalling;
+        return waypointAnimatorScript.isWaypointFalling;
 
     }
 
@@ -419,7 +419,7 @@ public class WaypointManager : MonoBehaviour {
 
             if (waypointInstance != null) {
 
-                waypointAnimationsScript.playVibrateAndDestroyWaypointAnimation(waypointInstance);
+                waypointAnimatorScript.playVibrateAndDestroyWaypointAnimation(waypointInstance);
 
             }
 
@@ -433,7 +433,7 @@ public class WaypointManager : MonoBehaviour {
 
             if (activePointersDictionary[waypointIdentifier] != null) {
 
-                waypointAnimationsScript.playPointerUnscaleAndDestroyAnimation(activePointersDictionary[waypointIdentifier]);
+                waypointAnimatorScript.playPointerUnscaleAndDestroyAnimation(activePointersDictionary[waypointIdentifier]);
 
             }
 
@@ -586,10 +586,10 @@ public class WaypointManager : MonoBehaviour {
                         GameObject newPointerInstance = Instantiate(pointerPrefabsList[waypointIdentifier]);
 
                         newPointerInstance.transform.SetParent(null);
-                        newPointerInstance.transform.localScale = Vector3.one * waypointAnimationsScript.pointerMinScale;
+                        newPointerInstance.transform.localScale = Vector3.one * waypointAnimatorScript.pointerMinScale;
 
                         activePointersDictionary.Add(waypointIdentifier, newPointerInstance);
-                        waypointAnimationsScript.playPointerScaleAnimation(newPointerInstance);
+                        waypointAnimatorScript.playPointerScaleAnimation(newPointerInstance);
 
                     }
                 }
@@ -656,7 +656,7 @@ public class WaypointManager : MonoBehaviour {
 
                     if (pointerToDestroy != null) {
 
-                        waypointAnimationsScript.playPointerUnscaleAndDestroyAnimation(pointerToDestroy);
+                        waypointAnimatorScript.playPointerUnscaleAndDestroyAnimation(pointerToDestroy);
 
                     }
 
