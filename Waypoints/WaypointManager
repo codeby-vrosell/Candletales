@@ -82,8 +82,8 @@ public class WaypointManager : MonoBehaviour {
     // References
     // ============================================================
 
-    private waypointAnimator waypointAnimatorScript;
-    private PlayerControllerBase playerControllerScript;
+    private WaypointAnimator waypointAnimatorScript;
+    private PlayerControllerBase playerControllerBaseScript;
     private GridAnimator gridAnimatorScript;
 
     private void Awake() {
@@ -100,13 +100,13 @@ public class WaypointManager : MonoBehaviour {
 
         }
 
-        waypointAnimatorScript = GetComponent<waypointAnimator>();
+        waypointAnimatorScript = GetComponent<WaypointAnimator>();
 
     }
 
     private void Start() {
 
-        playerControllerScript = FindFirstObjectByType<PlayerControllerBase>();
+        playerControllerBaseScript = FindFirstObjectByType<PlayerControllerBase>();
         gridAnimatorScript = FindFirstObjectByType<GridAnimator>();
 
         updateIndicatorColor();
@@ -303,9 +303,9 @@ public class WaypointManager : MonoBehaviour {
 
             }
 
-            if (playerControllerScript != null) {
+            if (playerControllerBaseScript != null) {
 
-                if (playerControllerScript.isMoving == true) {
+                if (playerControllerBaseScript.isMoving == true) {
 
                     if (CameraShake.Instance != null) {
 
@@ -317,7 +317,7 @@ public class WaypointManager : MonoBehaviour {
 
                 }
 
-                Vector2Int playerPosition = playerControllerScript.getCurrentGridPosition();
+                Vector2Int playerPosition = playerControllerBaseScript.getCurrentGridPosition();
 
                 if (playerPosition == gridPosition) {
 
