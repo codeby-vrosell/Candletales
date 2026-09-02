@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="IMG/banner.jpg" alt="Candletales Banner" />
+  <img src="/Assets/banner.jpg" alt="Candletales Banner" />
 </p>
 
 # Candletales
@@ -54,9 +54,9 @@ Each script contains inline comments explaining complex parts and an optional **
 The following screenshots display BIOLEECH gameplay and environments:
 
 <p align="center">
-  <img src="IMG/IMG1.png" alt="Candletales Screenshot 1" width="30%"/>
-  <img src="/IMG/IMG2.jpeg" alt="Candletales Screenshot 2" width="30%"/>
-  <img src="/IMG/IMG3.jpeg" alt="Candletales Screenshot 3" width="30%"/>
+  <img src="/Assets/IMG1.png" alt="Candletales Screenshot 1" width="30%"/>
+  <img src="/Assets/IMG2.jpeg" alt="Candletales Screenshot 2" width="30%"/>
+  <img src="/Assets/IMG3.jpeg" alt="Candletales Screenshot 3" width="30%"/>
 
 The official Candletales trailer is available on:
 
