@@ -118,10 +118,10 @@ public class GridHighlighter : MonoBehaviour {
     // Component References
     // ============================================================
 
-    private GridManager gridManager;
-    private GridAnimations gridAnimations;
-    private PlayerControllerBase playerMover;
-    private BiomeGenerator biomeGenerator;
+    private GridManager gridManagerScript;
+    private GridAnimator gridAnimatorScript;
+    private PlayerControllerBase playerControllerBaseScript;
+    private BiomeGenerator biomeGeneratorScript;
 
     [HideInInspector] public Cell lastHoveredCell;
     public Transform hoveredEnemyTransform;
@@ -185,9 +185,9 @@ public class GridHighlighter : MonoBehaviour {
 
     void Start() {
 
-        biomeGenerator = GetComponent<BiomeGenerator>();
-        gridManager = GetComponent<GridManager>();
-        gridAnimations = GetComponent<GridAnimations>();
+        biomeGeneratorScript = GetComponent<BiomeGenerator>();
+        gridManagerScript = GetComponent<GridManager>();
+        gridAnimatorScript = GetComponent<GridAnimator>();
 
         baseColorId = Shader.PropertyToID("_BaseColor");
         fillColorId = Shader.PropertyToID("_FillColor");
@@ -243,7 +243,7 @@ public class GridHighlighter : MonoBehaviour {
 
     private void assignPlayerWhenSpawn() {
 
-        if (playerMover == null) {
+        if (playerControllerBaseScript == null) {
 
             GameObject playerGameObject = GameObject.FindGameObjectWithTag("Player");
 
@@ -259,7 +259,7 @@ public class GridHighlighter : MonoBehaviour {
 
             }
 
-            playerMover = playerGameObject.GetComponent<PlayerControllerBase>();
+            playerControllerBaseScript = playerGameObject.GetComponent<PlayerControllerBase>();
 
         }
     }
@@ -311,8 +311,8 @@ public class GridHighlighter : MonoBehaviour {
 
         if (bestInteractable != null) {
 
-            Vector2Int interactableGridPosition = gridManager.worldToGridPosition(bestInteractableTransform.position);
-            bool hasInteractableCell = gridManager.getCells().TryGetValue(interactableGridPosition, out Cell interactableCell);
+            Vector2Int interactableGridPosition = gridManagerScript.worldToGridPosition(bestInteractableTransform.position);
+            bool hasInteractableCell = gridManagerScript.getCells().TryGetValue(interactableGridPosition, out Cell interactableCell);
 
             if (hasInteractableCell == true) {
 
@@ -406,9 +406,9 @@ public class GridHighlighter : MonoBehaviour {
                 Vector2Int startPosition = Vector2Int.zero;
                 Vector2Int goalPosition = bestCell.gridPosition;
 
-                if (playerMover != null && gridAnimations.centerAnimationEnded == true) {
+                if (playerControllerBaseScript != null && gridAnimatorScript.centerAnimationEnded == true) {
 
-                    startPosition = playerMover.getCurrentGridPos();
+                    startPosition = playerControllerBaseScript.getCurrentGridPos();
 
                     if (bestInteractable != null) {
 
@@ -423,7 +423,7 @@ public class GridHighlighter : MonoBehaviour {
                         else {
 
                             int infiniteRange = 999;
-                            goalPosition = playerMover.selectCloserWalkableCellToTargetInRange(bestInteractableTransform, infiniteRange);
+                            goalPosition = playerControllerBaseScript.selectCloserWalkableCellToTargetInRange(bestInteractableTransform, infiniteRange);
 
                         }
                     }
@@ -436,7 +436,7 @@ public class GridHighlighter : MonoBehaviour {
 
                     else {
 
-                        targetPath = Pathfinder.findPath(startPosition, goalPosition, gridManager.getCells());
+                        targetPath = Pathfinder.findPath(startPosition, goalPosition, gridManagerScript.getCells());
                         
                         if (targetPath != null && targetPath.Count > 0) {
 
@@ -496,15 +496,15 @@ public class GridHighlighter : MonoBehaviour {
 
                     int maximumCells = PlayerManager.Instance.cellsPerTurn;
 
-                    if (playerMover != null && playerMover.isMoving == true) {
+                    if (playerControllerBaseScript != null && playerControllerBaseScript.isMoving == true) {
 
-                        if (playerMover.currentPathLeft != null && playerMover.currentPathLeft.Count > 1) {
+                        if (playerControllerBaseScript.currentPathLeft != null && playerControllerBaseScript.currentPathLeft.Count > 1) {
 
-                            Vector2Int currentJumpDestination = playerMover.currentPathLeft[1];
+                            Vector2Int currentJumpDestination = playerControllerBaseScript.currentPathLeft[1];
 
-                            if (playerMover.getCurrentGridPos() == currentJumpDestination) {
+                            if (playerControllerBaseScript.getCurrentGridPos() == currentJumpDestination) {
 
-                                bool hasJumpCell = gridManager.getCells().TryGetValue(currentJumpDestination, out Cell jumpCell);
+                                bool hasJumpCell = gridManagerScript.getCells().TryGetValue(currentJumpDestination, out Cell jumpCell);
 
                                 if (hasJumpCell == true) {
 
@@ -521,7 +521,7 @@ public class GridHighlighter : MonoBehaviour {
                     foreach (Vector2Int pathPosition in targetPath) {
 
                         currentPathPositions.Add(pathPosition);
-                        bool hasCellData = gridManager.getCells().TryGetValue(pathPosition, out Cell currentCell);
+                        bool hasCellData = gridManagerScript.getCells().TryGetValue(pathPosition, out Cell currentCell);
 
                         if (hasCellData == true) {
 
@@ -556,7 +556,7 @@ public class GridHighlighter : MonoBehaviour {
 
                     foreach (Vector2Int targetPosition in targetPath) {
 
-                        bool hasPathCell = gridManager.getCells().TryGetValue(targetPosition, out Cell pathCell);
+                        bool hasPathCell = gridManagerScript.getCells().TryGetValue(targetPosition, out Cell pathCell);
 
                         if (hasPathCell == false) {
 
@@ -615,32 +615,32 @@ public class GridHighlighter : MonoBehaviour {
                 }
             }
 
-            if (playerMover != null && playerMover.isMoving == false) {
+            if (playerControllerBaseScript != null && playerControllerBaseScript.isMoving == false) {
 
                 if (bestInteractable != null) {
 
-                    Vector2Int myGridPosition = playerMover.getCurrentGridPos();
+                    Vector2Int myGridPosition = playerControllerBaseScript.getCurrentGridPos();
 
                     if (isAdjacentToFootprint(myGridPosition, bestInteractable.getFootprint()) == true) {
 
                         Vector3 positionTarget = bestInteractableTransform.position; 
                         positionTarget.y = 0f;
-                        playerMover.lookPos = positionTarget;
+                        playerControllerBaseScript.lookPos = positionTarget;
 
                     }
 
                     else if (currentPathCells.Count > 1) {
 
-                        Vector3 nextPosition = gridManager.gridToWorldPosition(currentPathCells[1].gridPosition);
-                        playerMover.lookPos = nextPosition;
+                        Vector3 nextPosition = gridManagerScript.gridToWorldPosition(currentPathCells[1].gridPosition);
+                        playerControllerBaseScript.lookPos = nextPosition;
 
                     }
                 }
 
                 else if (currentPathCells.Count > 1) {
 
-                    Vector3 nextPosition = gridManager.gridToWorldPosition(currentPathCells[1].gridPosition);
-                    playerMover.lookPos = nextPosition;
+                    Vector3 nextPosition = gridManagerScript.gridToWorldPosition(currentPathCells[1].gridPosition);
+                    playerControllerBaseScript.lookPos = nextPosition;
 
                 }
             }
@@ -1201,7 +1201,7 @@ public class GridHighlighter : MonoBehaviour {
 
             }
 
-            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+            bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
             if (cellExists == true) {
 
@@ -1224,7 +1224,7 @@ public class GridHighlighter : MonoBehaviour {
 
         foreach (Vector2Int position in areaPositions) {
 
-            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+            bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
             if (cellExists == true) {
 
@@ -1248,7 +1248,7 @@ public class GridHighlighter : MonoBehaviour {
 
             }
 
-            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+            bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
             if (cellExists == true) {
 
@@ -1309,7 +1309,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 }
 
-                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+                bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
                 if (cellExists == true) {
 
@@ -1383,7 +1383,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 if (cellsToAnimate != null && cellsToAnimate.Contains(position) == false) {
 
-                    bool staticCellExists = gridManager.getCells().TryGetValue(position, out Cell staticCell);
+                    bool staticCellExists = gridManagerScript.getCells().TryGetValue(position, out Cell staticCell);
 
                     if (staticCellExists == true) {
 
@@ -1433,7 +1433,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 }
 
-                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+                bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
                 if (cellExists == true) {
 
@@ -1476,7 +1476,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 }
 
-                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+                bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
                 if (cellExists == true) {
 
@@ -1502,7 +1502,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 }
 
-                bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+                bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
                 if (cellExists == true) {
 
@@ -1656,11 +1656,11 @@ public class GridHighlighter : MonoBehaviour {
 
         }
 
-        bool myCellExists = gridManager.getCells().TryGetValue(myPosition, out Cell myCell);
+        bool myCellExists = gridManagerScript.getCells().TryGetValue(myPosition, out Cell myCell);
 
         if (myCellExists == true) {
 
-            bool neighborCellExists = gridManager.getCells().TryGetValue(neighborPosition, out Cell neighborCell);
+            bool neighborCellExists = gridManagerScript.getCells().TryGetValue(neighborPosition, out Cell neighborCell);
 
             if (neighborCellExists == true) {
 
@@ -1706,13 +1706,13 @@ public class GridHighlighter : MonoBehaviour {
 
     private void applyAlphaToGrid(float targetAlpha) {
 
-        if (gridManager == null) {
+        if (gridManagerScript == null) {
 
             return;
 
         }
 
-        foreach (var keyValuePair in gridManager.getCells()) {
+        foreach (var keyValuePair in gridManagerScript.getCells()) {
 
             Cell targetCell = keyValuePair.Value;
 
@@ -1736,7 +1736,7 @@ public class GridHighlighter : MonoBehaviour {
         HashSet<EnemyBase> currentPerceivingEnemies = new HashSet<EnemyBase>();
 
         int currentEnemyStateHash = 17;
-        Vector2Int centerPosition = gridManager.gridCenter;
+        Vector2Int centerPosition = gridManagerScript.gridCenter;
 
         foreach (var attackSystem in AttackSystem.allSystems) {
 
@@ -1766,9 +1766,9 @@ public class GridHighlighter : MonoBehaviour {
         bool gridMovedThisFrame = false;
         Vector2Int currentPlayerPosition;
 
-        if (playerMover != null) {
+        if (playerControllerBaseScript != null) {
 
-            currentPlayerPosition = playerMover.getCurrentGridPos();
+            currentPlayerPosition = playerControllerBaseScript.getCurrentGridPos();
 
         }
 
@@ -1778,12 +1778,12 @@ public class GridHighlighter : MonoBehaviour {
 
         }
 
-        bool centerChanged = gridManager.gridCenter != lastGridCenter;
+        bool centerChanged = gridManagerScript.gridCenter != lastGridCenter;
         bool playerMoved = currentPlayerPosition != lastPlayerGridPosition;
 
         if (centerChanged == true || playerMoved == true || enemiesChanged == true) {
 
-            lastGridCenter = gridManager.gridCenter;
+            lastGridCenter = gridManagerScript.gridCenter;
             lastPlayerGridPosition = currentPlayerPosition;
 
             updateVirtualPerceptionCache();
@@ -1806,7 +1806,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 if (oldEnemy != null) {
 
-                    animationCenter = animationCenter + gridManager.worldToGridPosition(oldEnemy.transform.position);
+                    animationCenter = animationCenter + gridManagerScript.worldToGridPosition(oldEnemy.transform.position);
                     lostCount = lostCount + 1;
 
                 }
@@ -1900,21 +1900,21 @@ public class GridHighlighter : MonoBehaviour {
 
         cachedVirtualPerception.Clear();
 
-        if (gridManager == null) {
+        if (gridManagerScript == null) {
 
             return;
 
         }
 
-        int halfWidth = gridManager.visibleWidth / 2;
-        int halfHeight = gridManager.visibleHeight / 2;
+        int halfWidth = gridManagerScript.visibleWidth / 2;
+        int halfHeight = gridManagerScript.visibleHeight / 2;
 
-        Vector2Int centerPosition = gridManager.gridCenter;
+        Vector2Int centerPosition = gridManagerScript.gridCenter;
         int safeRange = Mathf.Max(maxPerceptionRange, 6);
 
-        if (biomeGenerator != null) {
+        if (biomeGeneratorScript != null) {
 
-            biomeGenerator.clearDistantPredictionCache(centerPosition, halfWidth + safeRange + 2);
+            biomeGeneratorScript.clearDistantPredictionCache(centerPosition, halfWidth + safeRange + 2);
 
         }
 
@@ -1928,7 +1928,7 @@ public class GridHighlighter : MonoBehaviour {
 
                 if (isOutOfBounds == false) {
 
-                    bool cellExists = gridManager.getCells().TryGetValue(targetPosition, out Cell targetCell) && targetCell.visual != null;
+                    bool cellExists = gridManagerScript.getCells().TryGetValue(targetPosition, out Cell targetCell) && targetCell.visual != null;
 
                     if (cellExists == true) {
 
@@ -1937,7 +1937,7 @@ public class GridHighlighter : MonoBehaviour {
                     }
                 }
 
-                TileType virtualEnemyType = gridManager.getPredictedEnemyAt(targetPosition);
+                TileType virtualEnemyType = gridManagerScript.getPredictedEnemyAt(targetPosition);
 
                 if (virtualEnemyType != null) {
 
@@ -1963,7 +1963,7 @@ public class GridHighlighter : MonoBehaviour {
 
         foreach (Vector2Int position in perceptionPositions) {
 
-            bool cellExists = gridManager.getCells().TryGetValue(position, out Cell targetCell);
+            bool cellExists = gridManagerScript.getCells().TryGetValue(position, out Cell targetCell);
 
             if (cellExists == true) {
 
@@ -2066,7 +2066,7 @@ public class GridHighlighter : MonoBehaviour {
     private Cell getCellFromHit(RaycastHit raycastHit) {
 
         int instanceId = raycastHit.collider.GetInstanceID();
-        bool cellFound = gridManager.colliderToCellMap.TryGetValue(instanceId, out Cell targetCell);
+        bool cellFound = gridManagerScript.colliderToCellMap.TryGetValue(instanceId, out Cell targetCell);
 
         if (cellFound == true) {
 
@@ -2095,9 +2095,9 @@ public class GridHighlighter : MonoBehaviour {
 
         }
 
-        if (playerMover != null) {
+        if (playerControllerBaseScript != null) {
 
-            Vector2Int currentPosition = playerMover.getCurrentGridPos();
+            Vector2Int currentPosition = playerControllerBaseScript.getCurrentGridPos();
 
             if (currentPosition != lastPlayerGridPosition) {
 
