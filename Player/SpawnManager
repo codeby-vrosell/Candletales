@@ -1,0 +1,223 @@
+// ============================================================
+// Readme of SpawnManager
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script orchestrates the initial cinematic spawn sequence when the game scene loads.
+It acts as a sequential state machine that handles the screen fade-in, waits for the procedural grid to finish generating, triggers the falling animations for the totems and candles, and finally spawns the player entity before enabling interactivity.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Initializes the GridManager to begin procedural generation upon startup.
+- Controls the alpha interpolation of a black UI screen overlay for smooth fade-ins.
+- Yields coroutine execution to synchronize with external animations (grid generation, totems falling).
+- Instantiates the player prefab, calculates its drop position, and triggers its falling sequence.
+- Enables input systems and turn UI components once the entire spawn sequence completes safely.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections;
+
+public class SpawnManager : MonoBehaviour {
+
+    // ============================================================
+    // References
+    // ============================================================
+
+    [Header("References")]
+    public GameObject playerPrefab;
+    public Image blackScreen;
+
+    // ============================================================
+    // Fade Settings
+    // ============================================================
+
+    [Header("Fade Settings")]
+    public float fadeDuration;
+    public float fadeDarknessHold;
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool playerSpawnAnimationEnded = false;
+
+    // ============================================================
+    // Internal State & Component References
+    // ============================================================
+
+    private GridAnimations gridAnimationScript;
+    private GridHighlighter gridHighlighterScript;
+    private EntityFaller playerFallerScript;
+    private TotemsCandlesAnimations totemsCandlesAnimationsScript;
+    private TurnCounterAnimations turnCounterAnimationsScript;
+    private TurnCycleManager turnCycleManagerScript;
+
+    private void Start() {
+
+        gridAnimationScript = FindFirstObjectByType<GridAnimations>();
+        gridHighlighterScript = FindFirstObjectByType<GridHighlighter>();
+        totemsCandlesAnimationsScript = FindFirstObjectByType<TotemsCandlesAnimations>();
+        turnCounterAnimationsScript = FindFirstObjectByType<TurnCounterAnimations>();
+        turnCycleManagerScript = FindFirstObjectByType<TurnCycleManager>();
+
+        GridManager gridManagerInstance = FindFirstObjectByType<GridManager>();
+
+        if (gridManagerInstance != null) {
+
+            gridManagerInstance.initializeGrid();
+
+        }
+
+        else {
+
+            Debug.LogError("GridManager not found");
+            return;
+
+        }
+
+        StartCoroutine(spawnSequence());
+
+    }
+
+    private IEnumerator spawnSequence() {
+
+        playerSpawnAnimationEnded = false;
+
+        // 0. FADE IN
+        if (blackScreen != null) {
+
+            blackScreen.gameObject.SetActive(true);
+
+            Color fadeColor = blackScreen.color;
+            fadeColor.a = 1f;
+            blackScreen.color = fadeColor;
+
+            float fadeTimer = 0f;
+
+            while (fadeTimer < fadeDuration) {
+
+                fadeTimer = fadeTimer + Time.deltaTime;
+
+                float timeFraction = fadeTimer / fadeDuration;
+                float curvedTimeFraction = Mathf.Pow(timeFraction, fadeDarknessHold);
+
+                fadeColor.a = Mathf.Lerp(1f, 0f, curvedTimeFraction);
+                blackScreen.color = fadeColor;
+
+                yield return null;
+
+            }
+
+            fadeColor.a = 0f;
+            blackScreen.color = fadeColor;
+            blackScreen.gameObject.SetActive(false);
+
+        }
+
+        // 1. WAIT FOR GRID
+        if (gridAnimationScript != null) {
+
+            while (gridAnimationScript.gridSpawnAnimationEnded == false) {
+
+                yield return null;
+
+            }
+        }
+
+        // 2. LAUNCH TOTEMS AND CANDLES AND WAIT FOR THEM TO FINISH
+        if (totemsCandlesAnimationsScript != null) {
+
+            totemsCandlesAnimationsScript.playSpawnTotemsCandlesAnimation();
+
+            float totemTimer = 0f;
+
+            while (totemsCandlesAnimationsScript.isAnimating == true && totemTimer < 8f) {
+
+                totemTimer = totemTimer + Time.deltaTime;
+                yield return null;
+
+            }
+        }
+
+        // 3. SPAWN PLAYER AND WAIT FOR FALL
+        if (playerPrefab != null) {
+
+            Vector3 spawnPosition = new Vector3(0f, 10f, 0f);
+
+            EntityFaller fallerReference = playerPrefab.GetComponent<EntityFaller>();
+
+            if (fallerReference != null) {
+
+                spawnPosition = fallerReference.targetPosition;
+
+            }
+
+            GameObject playerInstance = Instantiate(playerPrefab, spawnPosition, Quaternion.identity);
+            playerFallerScript = playerInstance.GetComponent<EntityFaller>();
+
+            if (playerFallerScript != null) {
+
+                bool playerHasFinished = false;
+
+                playerFallerScript.fall(() => {
+
+                    playerHasFinished = true;
+
+                    BaseMovement movementScript = playerInstance.GetComponent<BaseMovement>();
+
+                    if (movementScript != null) {
+
+                        movementScript.makeMyCellParent();
+
+                    }
+                });
+
+                float playerSafetyTimer = 0f;
+
+                while (playerHasFinished == false && playerSafetyTimer < 2.0f) {
+
+                    playerSafetyTimer = playerSafetyTimer + Time.deltaTime;
+                    yield return null;
+
+                }
+            }
+        }
+       
+        yield return new WaitForSeconds(0.5f);
+
+        // 4. ENABLE CONTROLS
+        if (gridHighlighterScript != null) {
+
+            gridHighlighterScript.interactionsEnabled = true;
+            gridHighlighterScript.refreshHoverAndPath();
+
+        }
+
+        if (turnCounterAnimationsScript != null) {
+
+            turnCounterAnimationsScript.showMarks = true;
+            turnCounterAnimationsScript.updateMarksVisuals();
+
+        }
+
+        if (turnCycleManagerScript != null) {
+
+            turnCycleManagerScript.endSpawnTransition();
+
+        }
+
+        playerSpawnAnimationEnded = true;
+
+    }
+}
