@@ -20,19 +20,34 @@ Assets, scenes, and other game elements are **not included**. Only the scripts d
 
 Scripts are grouped by functionality:
 
-- [**Gamepad_Vibrator**](/Gamepad_Vibrator): Handles gamepad vibration effects and haptic feedback throughout the game.  
-- [**MAYA_AI**](/MAYA_AI): Scripts for MAYA, the game AI, including controllers, tutorial logic, text box animations, audio spectrum effects, jokes, and announcements. Includes the dialogue CSV (used in Unity) and a visual Excel/PDF for reference.
-- [**Map**](/Map): Allows player interaction with the environment (slime meshes, checkpoints, sky events).  
-- [**Menus**](/Menus): Game UI, including credit screens, main menu, hover animations, fades, and aesthetic element transitions.  
-- [**Player**](/Player): Player-related scripts such as aiming, crosshair control, door controllers, mesh switching, teleportation, and upgrade systems.  
-- [**Procedural_Animation**](/Procedural_Animation): Procedural adjustments like aligning character’s feet to terrain.  
-- [**Ship**](/Ship): Ship-related scripts, including in-game computer text effects, floating effects, and screen controllers.  
-- [**Tutorial**](/Tutorial): Scripts for tutorials: animations, visual effects, tutorial zone indicators, and step-by-step tutorial manager.  
-- [**UI**](/UI): In-game UI control, including full-screen glitch effects, glitch animator control, and player stimulants display.  
-- [**Weapon**](/Weapon): Weapon-related scripts including main weapon controller, QTE burner mechanics, hit zone management, slime suction, ammo/tank UI, shooting logic, and additional effects like FOV changes, weapon sway, and recoil.
+- [**Bonfire**](/Bonfire): Manages the bonfire interaction logic and progression or checkpoint mechanics.  
+- [**BossInvoker**](/BossInvoker): Handles the sequence, chain animations, and prefab mapping for summoning bosses.  
+- [**Camera**](/Camera): Controls dynamic camera behaviors like parallax scrolling and impact shake effects.  
+- [**Cursor**](/Cursor): Manages custom cursor visuals, hold-to-fill progress, and layer-specific interaction states.  
+- [**DevTools**](/DevTools): Provides a debugging panel interface for testing and adjusting game variables at runtime.  
+- [**EntityScript**](/EntityScript): Governs general entity behaviors like procedural falling animations upon spawning.  
+- [**FloatingNumber**](/FloatingNumber): Controls the instantiation and animation of floating combat text or damage numbers.  
+- [**Gamefeel**](/Gamefeel): Centralizes visual impact effects, hitstops, and global particle systems to enhance combat weight.  
+- [**Ilustrations**](/Ilustrations): Manages the display and animation sequences for 2D illustrative UI assets.  
+- [**InspectorEditors**](/InspectorEditors): Contains custom Unity Editor scripts to streamline the configuration of biomes, stages, and tile types.  
+- [**Lights**](/Lights): Handles environmental lighting behaviors such as procedural flickering and motion logic.  
+- [**MarineAnimals**](/MarineAnimals): Controls the spawning, management, and behaviors of ambient marine entities.  
+- [**Outline**](/Outline): Manages the dynamic coloring and rendering of visual outlines for hovered or selected grid objects.  
+- [**Pathfinder**](/Pathfinder): Computes shortest-path navigation for entities across the procedural grid.  
+- [**Player**](/Player): Orchestrates the core cinematic sequences for the player's initial spawn and death transitions.  
+- [**ProceduralGeneration**](/ProceduralGeneration): Drives the core grid layout, biome seeding, cell state tracking, and dynamic border generation.  
+- [**Slime**](/Slime): Controls the interactive slime hazard that swallows, empowers, and violently launches player dice.  
+- [**Splines**](/Splines): Translates external JSON data into procedural Unity splines and manages the animation of dynamic chains.  
+- [**Stages**](/Stages): Defines the data structures and progression logic for biome transitions and enemy wave configurations.  
+- [**StainedGlass**](/StainedGlass): Manages the animations and behavioral states for the stained glass eye entities.  
+- [**TileType**](/TileType): Provides the foundational ScriptableObject data templates for grid tiles and multi-tile collision shapes.  
+- [**Totems&Candles**](/Totems&Candles): Controls the specific cinematic falling animations for the environmental props during the spawn sequence.  
+- [**Totems**](/Totems): Manages the mechanical state and progress bar UI updates for the totem entities.  
+- [**UI**](/UI): Handles interface elements including health bar interpolations, UI animations, and 3D billboarding logic.  
+- [**Waypoints**](/Waypoints): Manages player-placed grid markers, their physical animations, and off-screen UI pointer targeting.  
+- [**Weather**](/Weather): Controls randomized atmospheric particle systems based on cooldown timers and time-of-day constraints.
 
 Each script contains inline comments explaining complex parts and an optional **header README** describing its functionality and responsibilities.
-
 
 ## How to Use
 
