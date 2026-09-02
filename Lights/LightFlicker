@@ -1,0 +1,160 @@
+// ============================================================
+// Readme of LightFlicker
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script controls the procedural flickering animation for light sources across the grid, such as the sacred candles on the boss totems. 
+It dynamically adjusts intensity and range within random parameters to simulate natural fire behavior in a High Definition Render Pipeline (HDRP) environment.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Interfaces with Unity's base Light and HDRP's HDAdditionalLightData components.
+- Randomizes target intensities, ranges, and transition intervals to create organic flicker.
+- Interpolates smoothly between current and target light states over time.
+- Scales light properties according to the GameObject's lossy scale to maintain visual consistency.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.HighDefinition;
+
+public class LightFlicker : MonoBehaviour {
+
+    // ============================================================
+    // Status
+    // ============================================================
+
+    [Header("Status")]
+    public bool canFlick = false;
+
+    // ============================================================
+    // Intensity Settings
+    // ============================================================
+
+    [Header("Intensity Settings")]
+    public float minimumIntensity;
+    public float maximumIntensity;
+
+    // ============================================================
+    // Range Settings
+    // ============================================================
+
+    [Header("Range Settings")]
+    public float minimumRange;
+    public float maximumRange;
+
+    // ============================================================
+    // Speed Settings
+    // ============================================================
+
+    [Header("Speed Settings")]
+    public float minimumInterval;
+    public float maximumInterval;
+
+    // ============================================================
+    // Internal State & References
+    // ============================================================
+
+    private Light baseLight;
+    private HDAdditionalLightData highDefinitionLightData;
+
+    private float timer = 0f;
+    private float currentInterval = 0.1f;
+
+    private float startIntensity;
+    private float targetIntensity;
+    private float startRange;
+    private float targetRange;
+
+    [HideInInspector] public float fadeMultiplier = 1f;
+
+    private bool wasFlickering = false;
+
+    private void Start()  {
+
+        baseLight = GetComponent<Light>();
+        highDefinitionLightData = GetComponent<HDAdditionalLightData>();
+
+        if (highDefinitionLightData == null || baseLight == null) {
+
+            enabled = false;
+            return;
+
+        }
+
+        baseLight.lightUnit = LightUnit.Lumen;
+
+        startIntensity = Random.Range(minimumIntensity, maximumIntensity);
+        targetIntensity = startIntensity;
+
+        startRange = Random.Range(minimumRange, maximumRange);
+        targetRange = startRange;
+
+        setNewTarget();
+
+    }
+
+    private void Update() {
+
+        if (canFlick == false) {
+
+            wasFlickering = false;
+            return;
+
+        }
+
+        if (wasFlickering == false) {
+
+            wasFlickering = true;
+            timer = 0f;
+
+            startIntensity = minimumIntensity;
+            startRange = minimumRange;
+
+            targetIntensity = Random.Range(minimumIntensity, maximumIntensity);
+            targetRange = Random.Range(minimumRange, maximumRange);
+            currentInterval = Random.Range(minimumInterval, maximumInterval);
+
+        }
+
+        timer = timer + Time.deltaTime;
+
+        float timeFraction = timer / currentInterval;
+
+        float interpolatedIntensity = Mathf.Lerp(startIntensity, targetIntensity, timeFraction);
+        float interpolatedRange = Mathf.Lerp(startRange, targetRange, timeFraction);
+
+        float currentScale = transform.lossyScale.x;
+        float convertedIntensity = LightUnitUtils.ConvertIntensity(baseLight, interpolatedIntensity, LightUnit.Lumen, LightUnit.Candela);
+
+        baseLight.intensity = convertedIntensity * currentScale * fadeMultiplier;
+        baseLight.range = interpolatedRange * currentScale;
+
+        if (timer >= currentInterval) {
+
+            setNewTarget();
+
+        }
+    }
+
+    private void setNewTarget() {
+
+        startIntensity = targetIntensity;
+        startRange = targetRange;
+
+        targetIntensity = Random.Range(minimumIntensity, maximumIntensity);
+        targetRange = Random.Range(minimumRange, maximumRange);
+
+        currentInterval = Random.Range(minimumInterval, maximumInterval);
+        timer = 0f;
+
+    }
+}
