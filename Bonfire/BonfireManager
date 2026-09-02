@@ -51,9 +51,9 @@ public class BonfireManager : MonoBehaviour, IInteractable {
     // Component References
     // ============================================================
 
-    private DiceManager diceManager;
-    private PlayerControllerBase playerController;
-    private LightFlicker lightFlicker;
+    private DiceManager diceManagerScript;
+    private PlayerControllerBase playerControllerBaseScript;
+    private LightFlicker lightFlickerScript;
 
     // ============================================================
     // Grid Data
@@ -69,8 +69,8 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
     void Start() {
 
-        diceManager = FindFirstObjectByType<DiceManager>();
-        playerController = FindFirstObjectByType<PlayerControllerBase>();
+        diceManagerScript = FindFirstObjectByType<DiceManager>();
+        playerControllerBaseScript = FindFirstObjectByType<PlayerControllerBase>();
 
         gridPosition = GridManager.Instance.worldToGridPosition(transform.position);
 
@@ -79,7 +79,7 @@ public class BonfireManager : MonoBehaviour, IInteractable {
             maxLightIntensity = bonfireLight.intensity;
             bonfireLight.intensity = 0f;
 
-            lightFlicker = bonfireLight.GetComponent<LightFlicker>();
+            lightFlickerScript = bonfireLight.GetComponent<LightFlicker>();
 
         }
 
@@ -95,13 +95,13 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
     public bool canInteract() {
 
-        if (diceManager.HasFloatingDice()) {
+        if (diceManagerScript.HasFloatingDice()) {
 
             return false;
 
         }
 
-        if (playerController.healthSystemScript.isFullHP()) {
+        if (playerControllerBaseScript.healthSystemScript.isFullHP()) {
 
             return false;
 
@@ -155,10 +155,10 @@ public class BonfireManager : MonoBehaviour, IInteractable {
             
             }
 
-            if (lightFlicker != null) {
+            if (lightFlickerScript != null) {
 
-                lightFlicker.canFlick = true;
-                lightFlicker.fadeMultiplier = 1f;
+                lightFlickerScript.canFlick = true;
+                lightFlickerScript.fadeMultiplier = 1f;
 
             }
 
@@ -174,10 +174,10 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
             fireParticles.Stop();
 
-            if (lightFlicker != null) {
+            if (lightFlickerScript != null) {
 
-                lightFlicker.canFlick = false;
-                lightFlicker.fadeMultiplier = 0f;
+                lightFlickerScript.canFlick = false;
+                lightFlickerScript.fadeMultiplier = 0f;
                 bonfireLight.intensity = 0f;
 
             }
@@ -203,8 +203,8 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
         }
 
-        playerController.canMove = false;
-        playerController.canTurn = false;
+        playerControllerBaseScript.canMove = false;
+        playerControllerBaseScript.canTurn = false;
 
         fireParticles.Play();
 
@@ -217,9 +217,9 @@ public class BonfireManager : MonoBehaviour, IInteractable {
         isWaitingForDice = true;
 
         // Subscribe to the dice event avoiding shorthand assignment operators
-        diceManager.OnAllDiceStopped = diceManager.OnAllDiceStopped + handleBonfireDiceResult;
+        diceManagerScript.OnAllDiceStopped = diceManagerScript.OnAllDiceStopped + handleBonfireDiceResult;
 
-        diceManager.nextRollIsHealing = true;
+        diceManagerScript.nextRollIsHealing = true;
 
         DiceRequest request = new DiceRequest(DiceCategory.Health, DiceSides.D10);
 
@@ -229,19 +229,19 @@ public class BonfireManager : MonoBehaviour, IInteractable {
         yield return new WaitUntil(() => isWaitingForDice == false);
 
         // Unsubscribe from the event safely
-        diceManager.OnAllDiceStopped = diceManager.OnAllDiceStopped - handleBonfireDiceResult;
+        diceManagerScript.OnAllDiceStopped = diceManagerScript.OnAllDiceStopped - handleBonfireDiceResult;
 
-        playerController.canMove = true;
-        playerController.canTurn = true;
+        playerControllerBaseScript.canMove = true;
+        playerControllerBaseScript.canTurn = true;
 
     }
 
     private IEnumerator fadeLightIn() {
 
-        if (lightFlicker != null) {
+        if (lightFlickerScript != null) {
 
-            lightFlicker.fadeMultiplier = 0f;
-            lightFlicker.canFlick = true;
+            lightFlickerScript.fadeMultiplier = 0f;
+            lightFlickerScript.canFlick = true;
 
         }
 
@@ -253,9 +253,9 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
             float timeFraction = Mathf.Clamp01(time / lightFadeDuration);
 
-            if (lightFlicker != null) {
+            if (lightFlickerScript != null) {
 
-                lightFlicker.fadeMultiplier = timeFraction;
+                lightFlickerScript.fadeMultiplier = timeFraction;
 
             }
 
@@ -270,9 +270,9 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
         }
 
-        if (lightFlicker != null) {
+        if (lightFlickerScript != null) {
 
-            lightFlicker.fadeMultiplier = 1f;
+            lightFlickerScript.fadeMultiplier = 1f;
 
         }
 
@@ -286,7 +286,7 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
     private void handleBonfireDiceResult(int totalRoll) {
 
-        HealthSystem healthSystem = playerController.healthSystemScript;
+        HealthSystem healthSystem = playerControllerBaseScript.healthSystemScript;
 
         if (healthSystem != null) {
 
@@ -302,7 +302,7 @@ public class BonfireManager : MonoBehaviour, IInteractable {
 
     private IEnumerator showHealEffect() {
 
-        GameObject playerObject = playerController.gameObject;
+        GameObject playerObject = playerControllerBaseScript.gameObject;
         GameObject healingVisual = playerObject.transform.GetChild(1).gameObject;
 
         healingVisual.SetActive(true);
