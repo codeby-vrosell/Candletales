@@ -1,0 +1,69 @@
+// ============================================================
+// Readme of LightMotion
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script provides procedural, curve-based movement for light sources across the X and Z axes.
+It adds organic, floating motion to elements like candle auras or ambient environment lights over the modular board, evaluating Unity AnimationCurves over time to determine position offsets.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores the initial world position of the GameObject upon startup.
+- Evaluates custom AnimationCurves for the X and Z axes based on elapsed time, speeds, and offsets.
+- Interpolates between minimum and maximum limits to calculate continuous smooth movement.
+- Applies the calculated offsets to the GameObject's transform position continuously.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+public class LightMotion : MonoBehaviour {
+
+    // ============================================================
+    // Motion Settings
+    // ============================================================
+
+    [Header("Motion Settings")]
+    public Vector2 speedXZ;
+    public Vector2 movementTimeOffsetXZ;
+
+    public Vector2 minimumLimitXZ;
+    public Vector2 maximumLimitXZ;
+
+    public AnimationCurve movementPathX;
+    public AnimationCurve movementPathZ;
+
+    // ============================================================
+    // Internal State
+    // ============================================================
+
+    private Vector3 initialPosition;
+
+    private void Start() {
+
+        initialPosition = transform.position;
+
+    }
+
+    private void Update() {
+
+        float timeFractionX = Mathf.Repeat((Time.time * speedXZ.x) + movementTimeOffsetXZ.x, 1f);
+        float timeFractionZ = Mathf.Repeat((Time.time * speedXZ.y) + movementTimeOffsetXZ.y, 1f);
+
+        float curvePercentageX = movementPathX.Evaluate(timeFractionX);
+        float curvePercentageZ = movementPathZ.Evaluate(timeFractionZ);
+
+        float offsetPositionX = Mathf.Lerp(minimumLimitXZ.x, maximumLimitXZ.x, curvePercentageX);
+        float offsetPositionZ = Mathf.Lerp(minimumLimitXZ.y, maximumLimitXZ.y, curvePercentageZ);
+
+        transform.position = new Vector3(initialPosition.x + offsetPositionX, initialPosition.y, initialPosition.z + offsetPositionZ);
+
+    }
+}
