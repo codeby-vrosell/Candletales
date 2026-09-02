@@ -1,0 +1,71 @@
+// ============================================================
+// Readme of GameStage
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure that represents a global progression stage in the game.
+It acts as a configuration container to dynamically scale the difficulty of the procedural world generation (such as enemy probabilities, group sizes, and respawn rates) based on the current turn cycle.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Defines the specific turn at which this difficulty stage activates.
+- Provides toggles and overrides to modify global enemy spawn probabilities and group separations.
+- Controls the weights for enemy group sizes and their respawn timers.
+- Stores arrays of biome-specific and enemy-specific stage modifiers (BiomeGameStage and EnemyGameStage).
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+using UnityEngine;
+
+[System.Serializable]
+public class GameStage {
+
+    // ============================================================
+    // Stage Activation
+    // ============================================================
+
+    public string stageName = "";
+    
+    [Min(2)] 
+    public int turnToActivate = 2;
+
+    // ============================================================
+    // Global Enemy Settings
+    // ============================================================
+
+    [Header("Main Enemy Probability")]
+    public bool modifyMainEnemyProbability;
+    
+    [Range(0f, 1f)] 
+    public float mainEnemyProbability;
+
+    [Header("Minimum Group Separation")]
+    public bool modifyMinimumGroupSeparation;
+    public int minimumGroupSeparation;
+
+    [Header("Turns To Respawn")]
+    public bool modifyTurnsToRespawn;
+    public int turnsToRespawn;
+
+    [Header("Group Size Weights")]
+    public bool modifyGroupSizeWeights;
+    public int[] groupSizeWeights;
+
+    // ============================================================
+    // Specific Modifiers
+    // ============================================================
+
+    [Header("Biome Specific Frequencies")]
+    public BiomeGameStage[] biomeGameStages;
+
+    [Header("Specific Enemy Weights")]
+    public EnemyGameStage[] enemyGameStages;
+
+}
