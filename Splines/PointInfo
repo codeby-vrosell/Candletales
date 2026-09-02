@@ -1,0 +1,42 @@
+// ============================================================
+// Readme of PointInfo
+// ============================================================ 
+
+// ============================================================
+// Description
+// ============================================================
+
+This script defines a serializable data structure representing an individual point (or knot) along a Bezier curve.
+It operates as a foundational data container utilized by CurveInfo to store spatial coordinates, curve thickness (radius), and handle vectors exported from external 3D applications.
+
+// ============================================================
+// Responsibilities
+// ============================================================
+
+- Stores rotational tilt and scalar radius values for the individual curve point.
+- Holds a float array for the primary 3D position coordinates of the knot.
+- Contains float arrays for the left and right Bezier handles used to calculate tangent vectors.
+
+// ============================================================
+// End of readme
+// ============================================================  
+
+[System.Serializable]
+public class PointInfo {
+
+    // ============================================================
+    // Point Properties
+    // ============================================================
+
+    public float tilt;
+    public float radius;
+
+    // ============================================================
+    // Spatial Coordinates
+    // ============================================================
+
+    public float[] position;
+    public float[] leftHandle;
+    public float[] rightHandle;
+
+}
