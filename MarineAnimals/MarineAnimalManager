@@ -1,5 +1,5 @@
 // ============================================================
-// Readme of MarineAnimalsManager
+// Readme of MarineAnimalManager
 // ============================================================ 
 
 // ============================================================
@@ -25,7 +25,7 @@ It handles spawning entities at the visible edges of the board and cleans them u
 using System.Collections.Generic;
 using UnityEngine;
 
-public class MarineAnimalsManager : MonoBehaviour {
+public class MarineAnimalManager : MonoBehaviour {
 
     // ============================================================
     // General Settings
